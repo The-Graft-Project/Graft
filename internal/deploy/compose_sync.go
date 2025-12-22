@@ -12,7 +12,7 @@ import (
 )
 
 // SyncComposeOnly uploads only the docker-compose.yml and restarts services
-func SyncComposeOnly(client *ssh.Client, p *Project, partial bool, stdout, stderr io.Writer) error {
+func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "📄 Syncing compose file only...\n")
 
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
@@ -49,7 +49,7 @@ func SyncComposeOnly(client *ssh.Client, p *Project, partial bool, stdout, stder
 		return err
 	}
 
-	if partial {
+	if heave {
 		fmt.Fprintln(stdout, "✅ Compose file uploaded!")
 		return nil
 	}

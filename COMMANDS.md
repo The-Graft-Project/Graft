@@ -141,7 +141,7 @@ Deploy all services to the server.
 ```bash
 graft sync                    # Deploy all services
 graft sync --no-cache         # Force fresh build (clears cache)
-graft sync -p                 # Partial sync (upload only, no build)
+graft sync -h                 # Heave sync (upload only, no build)
 ```
 
 **What it does:**
@@ -150,13 +150,13 @@ graft sync -p                 # Partial sync (upload only, no build)
 3. Uploads source code for `serverbuild` services
 4. Injects secrets from `.graft/secrets.env`
 5. Uploads `docker-compose.yml`
-6. Builds and starts all services (skipped if -p is used)
-7. Cleans up old images (skipped if -p is used)
+6. Builds and starts all services (skipped if -h is used)
+7. Cleans up old images (skipped if -h is used)
 
 **Modes:**
 - **Normal:** Uses Docker cache for faster builds
 - **--no-cache:** Clears build cache and forces fresh build
-- **-p, --partial:** Partial sync. Performs uploads but skips the build and start steps on the server. Useful for stage-building or manual verification.
+- **-h, --heave:** Heave sync. Performs uploads but skips the build and start steps on the server. Useful for stage-building or manual verification.
 
 **Git-Based Sync:**
 
@@ -202,7 +202,7 @@ Deploy a specific service only.
 graft sync backend            # Deploy only backend
 graft sync frontend           # Deploy only frontend
 graft sync backend --no-cache # Force fresh build
-graft sync backend -p         # Upload code for backend ONLY (no build)
+graft sync backend -h         # Upload code for backend ONLY (no build)
 
 # Git-based service sync
 graft sync backend --git                    # Deploy backend from latest commit
@@ -211,11 +211,11 @@ graft sync frontend --git --branch develop  # Deploy frontend from develop branc
 
 **What it does:**
 1. Updates project metadata
-2. Stops and removes old container (skipped if -p is used)
+2. Stops and removes old container (skipped if -h is used)
 3. Uploads source code for that service
-4. Rebuilds only that service (skipped if -p is used)
-5. Starts the updated container (skipped if -p is used)
-6. Cleans up old images (skipped if -p is used)
+4. Rebuilds only that service (skipped if -h is used)
+5. Starts the updated container (skipped if -h is used)
+6. Cleans up old images (skipped if -h is used)
 
 **Benefits:**
 - ✅ Much faster than full sync
@@ -229,12 +229,12 @@ Update only the docker-compose.yml without rebuilding images.
 
 ```bash
 graft sync compose              # Update and restart
-graft sync compose -p           # Upload only (no restart)
+graft sync compose -h           # Upload only (no restart)
 ```
 
 **What it does:**
 1. Uploads updated `graft-compose.yml`
-2. Restarts services with new configuration (skipped if -p is used)
+2. Restarts services with new configuration (skipped if -h is used)
 3. Skips image building
 
 **Use for quick changes to:**
@@ -561,8 +561,8 @@ graft exec backend sh
 - `graft init` - Initialize project
 - `graft db <name> init` - Create database
 - `graft redis <name> init` - Create Redis instance
-- `graft sync [service] [--no-cache] [-p] [--git] [--branch <name>] [--commit <hash>]` - Deploy
-- `graft sync compose [-p]` - Update compose only
+- `graft sync [service] [--no-cache] [-h] [--git] [--branch <name>] [--commit <hash>]` - Deploy
+- `graft sync compose [-h]` - Update compose only
 - `graft logs <service>` - Stream logs
 
 ### Passthrough Commands (via docker compose)
