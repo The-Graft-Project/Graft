@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -230,15 +231,25 @@ func runHostInit() {
 
 	// Secure credentials for infrastructure
 	if setupPostgres && cfg.Infra.PostgresPassword == "" {
-		fmt.Println("🔐 Generating secure credentials for Postgres...")
-		cfg.Infra.PostgresUser = "graft_admin_" + config.GenerateRandomString(4)
-		cfg.Infra.PostgresPassword = config.GenerateRandomString(24)
-		cfg.Infra.PostgresDB = "graft_master_" + config.GenerateRandomString(4)
-		
-		// Save to config (global or local depends on how cfg was loaded)
-		// LoadConfig might have loaded local, we should probably save back to same
-		// But host init is usually a global thing. For now save it.
-		config.SaveConfig(cfg, strings.Contains(config.GetLocalConfigPath(), ".graft"))
+		// Try to pull existing from remote server first
+		fmt.Fprintln(os.Stdout, "🔍 Checking for existing infrastructure credentials on remote server...")
+		tmpFile := filepath.Join(os.TempDir(), "host_infra.config")
+		if err := client.DownloadFile(config.RemoteInfraPath, tmpFile); err == nil {
+			data, _ := os.ReadFile(tmpFile)
+			var infraCfg config.InfraConfig
+			if err := json.Unmarshal(data, &infraCfg); err == nil {
+				cfg.Infra.PostgresUser = infraCfg.PostgresUser
+				cfg.Infra.PostgresPassword = infraCfg.PostgresPassword
+				cfg.Infra.PostgresDB = infraCfg.PostgresDB
+				fmt.Fprintln(os.Stdout, "✅ Existing credentials found and loaded from remote server")
+			}
+			os.Remove(tmpFile)
+		} else {
+			fmt.Println("🔐 Generating new secure credentials for Postgres...")
+			cfg.Infra.PostgresUser = "graft_admin_" + config.GenerateRandomString(4)
+			cfg.Infra.PostgresPassword = config.GenerateRandomString(24)
+			cfg.Infra.PostgresDB = "graft_master_" + config.GenerateRandomString(4)
+		}
 	}
 
 	err = hostinit.InitHost(client, setupPostgres, setupRedis, 
@@ -305,9 +316,7 @@ func runInfraInit(typ, name string) {
 
 	var url string
 	if typ == "postgres" {
-		url, err = infra.InitPostgres(client, name, 
-			cfg.Infra.PostgresUser, cfg.Infra.PostgresPassword, cfg.Infra.PostgresDB, 
-			os.Stdout, os.Stderr)
+		url, err = infra.InitPostgres(client, name, cfg, os.Stdout, os.Stderr)
 	} else {
 		url, err = infra.InitRedis(client, name, os.Stdout, os.Stderr)
 	}

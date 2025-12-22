@@ -1,18 +1,48 @@
 package infra
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"io"
+	"os"
+	"path/filepath"
 
+	"github.com/skssmd/graft/internal/config"
 	"github.com/skssmd/graft/internal/ssh"
 )
 
-func InitPostgres(client *ssh.Client, name, rootUser, rootPass, rootDB string, stdout, stderr io.Writer) (string, error) {
+func InitPostgres(client *ssh.Client, name string, cfg *config.GraftConfig, stdout, stderr io.Writer) (string, error) {
 	fmt.Fprintf(stdout, "🐘 Creating isolated Postgres database: %s\n", name)
+
+	pgUser := cfg.Infra.PostgresUser
+	pgPass := cfg.Infra.PostgresPassword
+	pgDB := cfg.Infra.PostgresDB
+
+	// If credentials missing, try to load from remote server
+	if pgPass == "" {
+		fmt.Fprintln(stdout, "🔍 Credentials missing locally, fetching from remote server...")
+		tmpFile := filepath.Join(os.TempDir(), "remote_infra.config")
+		if err := client.DownloadFile(config.RemoteInfraPath, tmpFile); err == nil {
+			data, _ := os.ReadFile(tmpFile)
+			var infraCfg config.InfraConfig
+			if err := json.Unmarshal(data, &infraCfg); err == nil {
+				cfg.Infra.PostgresUser = infraCfg.PostgresUser
+				cfg.Infra.PostgresPassword = infraCfg.PostgresPassword
+				cfg.Infra.PostgresDB = infraCfg.PostgresDB
+				pgUser = cfg.Infra.PostgresUser
+				pgPass = cfg.Infra.PostgresPassword
+				pgDB = cfg.Infra.PostgresDB
+				fmt.Fprintln(stdout, "✅ Credentials fetched from remote server")
+			}
+			os.Remove(tmpFile)
+		} else {
+			return "", fmt.Errorf("could not find infrastructure credentials locally or on the remote server. Run 'graft host init' first.")
+		}
+	}
 	
 	// Connect to the shared 'graft-postgres' container and create the database
-	cmd := fmt.Sprintf(`sudo docker exec graft-postgres psql -U %s -d %s -c "CREATE DATABASE %s;"`, rootUser, rootDB, name)
+	cmd := fmt.Sprintf(`sudo docker exec graft-postgres psql -U %s -d %s -c "CREATE DATABASE %s;"`, pgUser, pgDB, name)
 
 	if err := client.RunCommand(cmd, stdout, stderr); err != nil {
 		// If it fails, maybe the DB already exists, which is fine for idempotency
@@ -20,7 +50,7 @@ func InitPostgres(client *ssh.Client, name, rootUser, rootPass, rootDB string, s
 	}
 
 	// Use the container name as host since they will be in the same graft-public network
-	url := fmt.Sprintf("postgres://%s:%s@graft-postgres:5432/%s", rootUser, rootPass, name)
+	url := fmt.Sprintf("postgres://%s:%s@graft-postgres:5432/%s", pgUser, pgPass, name)
 	return url, nil
 }
 

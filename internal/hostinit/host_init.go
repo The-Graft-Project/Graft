@@ -1,9 +1,13 @@
 package hostinit
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 
+	"github.com/skssmd/graft/internal/config"
 	"github.com/skssmd/graft/internal/ssh"
 )
 
@@ -173,6 +177,24 @@ sudo docker compose -f /opt/graft/infra/docker-compose.yml up -d`, services)
 		
 		if err := client.RunCommand(infraCmd, stdout, stderr); err != nil {
 			return fmt.Errorf("shared infrastructure setup failed: %v", err)
+		}
+
+		// Save credentials to remote config file
+		infraCfg := config.InfraConfig{
+			PostgresUser:     pgUser,
+			PostgresPassword: pgPass,
+			PostgresDB:       pgDB,
+		}
+		data, _ := json.MarshalIndent(infraCfg, "", "  ")
+		
+		tmpFile := filepath.Join(os.TempDir(), "infra.config")
+		os.WriteFile(tmpFile, data, 0644)
+		defer os.Remove(tmpFile)
+
+		if err := client.UploadFile(tmpFile, config.RemoteInfraPath); err != nil {
+			fmt.Fprintf(stdout, "⚠️  Warning: Could not save infra credentials to remote server: %v\n", err)
+		} else {
+			fmt.Fprintln(stdout, "✅ Infra credentials saved to remote server")
 		}
 	} else {
 		fmt.Fprintf(stdout, "\n⏭️  Skipping shared infrastructure setup\n")

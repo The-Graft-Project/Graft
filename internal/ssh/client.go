@@ -79,6 +79,23 @@ func (c *Client) UploadFile(local, remote string) error {
 	return err
 }
 
+func (c *Client) DownloadFile(remote, local string) error {
+	src, err := c.sftp.Open(remote)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.Create(local)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	return err
+}
+
 func (c *Client) Close() {
 	if c.sftp != nil {
 		c.sftp.Close()
