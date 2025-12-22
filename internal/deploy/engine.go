@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
@@ -192,27 +193,63 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache boo
 			return fmt.Errorf("Dockerfile not found: %s\n👉 Checked path: %s\n👉 Please check the 'dockerfile' field in your graft.yml and ensure the file exists and casing matches EXACTLY (Linux is case-sensitive!).", dockerfileName, dockerfilePath)
 		}
 
-		fmt.Fprintf(stdout, "� Creating tarball from %s...\n", contextPath)
-		tarballPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s.tar.gz", p.Name, serviceName))
+		fmt.Fprintf(stdout, "📦 Creating tarball from %s...\n", contextPath)
+		contextName := filepath.Base(contextPath)
+		if contextName == "." || contextName == "/" {
+			contextName = serviceName
+		}
+
+		tarballPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s.tar.gz", p.Name, contextName))
 		if err := createTarball(contextPath, tarballPath); err != nil {
 			return fmt.Errorf("failed to create tarball: %v", err)
 		}
 		defer os.Remove(tarballPath)
 
 		// Upload tarball to server
-		remoteTarball := path.Join(remoteDir, fmt.Sprintf("%s.tar.gz", serviceName))
+		remoteTarball := path.Join(remoteDir, fmt.Sprintf("%s.tar.gz", contextName))
 		fmt.Fprintf(stdout, "📤 Uploading source code...\n")
 		if err := client.UploadFile(tarballPath, remoteTarball); err != nil {
 			return fmt.Errorf("failed to upload tarball: %v", err)
 		}
 
 		// Extract on server
-		serviceDir := path.Join(remoteDir, serviceName)
+		serviceDir := path.Join(remoteDir, contextName)
 		extractCmd := fmt.Sprintf("rm -rf %s && mkdir -p %s && tar -xzf %s -C %s && rm %s", 
 			serviceDir, serviceDir, remoteTarball, serviceDir, remoteTarball)
 		fmt.Fprintf(stdout, "📂 Extracting on server...\n")
 		if err := client.RunCommand(extractCmd, stdout, stderr); err != nil {
 			return fmt.Errorf("failed to extract tarball: %v", err)
+		}
+
+		// Inject secrets and update context in compose file
+		content, err := os.ReadFile(localFile)
+		if err != nil {
+			return err
+		}
+
+		secrets, _ := config.LoadSecrets()
+		contentStr := string(content)
+		for key, value := range secrets {
+			contentStr = strings.ReplaceAll(contentStr, fmt.Sprintf("${%s}", key), value)
+		}
+
+		// Update context for this service
+		reContext := regexp.MustCompile(fmt.Sprintf(`(?m)(^\s+)context:\s*%s\b`, regexp.QuoteMeta(service.Build.Context)))
+		contentStr = reContext.ReplaceAllString(contentStr, fmt.Sprintf(`${1}context: ./%s`, contextName))
+		
+		reBuild := regexp.MustCompile(fmt.Sprintf(`(?m)(^\s+)build:\s*%s\b`, regexp.QuoteMeta(service.Build.Context)))
+		contentStr = reBuild.ReplaceAllString(contentStr, fmt.Sprintf(`${1}build: ./%s`, contextName))
+
+		// Upload modified docker-compose.yml
+		tmpFile := filepath.Join(os.TempDir(), "docker-compose.yml")
+		if err := os.WriteFile(tmpFile, []byte(contentStr), 0644); err != nil {
+			return err
+		}
+		defer os.Remove(tmpFile)
+
+		remoteCompose := path.Join(remoteDir, "docker-compose.yml")
+		if err := client.UploadFile(tmpFile, remoteCompose); err != nil {
+			return err
 		}
 	}
 
@@ -307,7 +344,12 @@ func Sync(client *ssh.Client, p *Project, noCache bool, stdout, stderr io.Writer
 			}
 
 			fmt.Fprintf(stdout, "  📁 Creating tarball from %s...\n", contextPath)
-			tarballPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s.tar.gz", p.Name, serviceName))
+			contextName := filepath.Base(contextPath)
+			if contextName == "." || contextName == "/" {
+				contextName = serviceName
+			}
+
+			tarballPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s.tar.gz", p.Name, contextName))
 			if err := createTarball(contextPath, tarballPath); err != nil {
 				return fmt.Errorf("failed to create tarball: %v", err)
 			}
@@ -315,14 +357,14 @@ func Sync(client *ssh.Client, p *Project, noCache bool, stdout, stderr io.Writer
 
 			// Upload tarball to server
 			// Use path.Join for remote (Linux) paths to ensure forward slashes
-			remoteTarball := path.Join(remoteDir, fmt.Sprintf("%s.tar.gz", serviceName))
+			remoteTarball := path.Join(remoteDir, fmt.Sprintf("%s.tar.gz", contextName))
 			fmt.Fprintf(stdout, "  📤 Uploading source code...\n")
 			if err := client.UploadFile(tarballPath, remoteTarball); err != nil {
 				return fmt.Errorf("failed to upload tarball: %v", err)
 			}
 
 			// Extract on server
-			serviceDir := path.Join(remoteDir, serviceName)
+			serviceDir := path.Join(remoteDir, contextName)
 			extractCmd := fmt.Sprintf("mkdir -p %s && tar -xzf %s -C %s && rm %s", 
 				serviceDir, remoteTarball, serviceDir, remoteTarball)
 			fmt.Fprintf(stdout, "  📂 Extracting on server...\n")
@@ -348,10 +390,17 @@ func Sync(client *ssh.Client, p *Project, noCache bool, stdout, stderr io.Writer
 	for serviceName, service := range compose.Services {
 		mode := getGraftMode(service.Labels)
 		if mode == "serverbuild" && service.Build != nil {
+			contextName := filepath.Base(service.Build.Context)
+			if contextName == "." || contextName == "/" {
+				contextName = serviceName
+			}
+			
 			// Update context to point to the extracted directory
-			oldContext := fmt.Sprintf("context: %s", service.Build.Context)
-			newContext := fmt.Sprintf("context: ./%s", serviceName)
-			contentStr = strings.Replace(contentStr, oldContext, newContext, 1)
+			reContext := regexp.MustCompile(fmt.Sprintf(`(?m)(^\s+)context:\s*%s\b`, regexp.QuoteMeta(service.Build.Context)))
+			contentStr = reContext.ReplaceAllString(contentStr, fmt.Sprintf(`${1}context: ./%s`, contextName))
+			
+			reBuild := regexp.MustCompile(fmt.Sprintf(`(?m)(^\s+)build:\s*%s\b`, regexp.QuoteMeta(service.Build.Context)))
+			contentStr = reBuild.ReplaceAllString(contentStr, fmt.Sprintf(`${1}build: ./%s`, contextName))
 		}
 	}
 
