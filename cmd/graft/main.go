@@ -162,9 +162,25 @@ func runInit() {
 		keyPath = strings.TrimSpace(keyPath)
 	}
 
-	fmt.Print("Project Name: ")
-	projName, _ := reader.ReadString('\n')
-	projName = strings.TrimSpace(projName)
+	var projName string
+	for {
+		fmt.Print("Project Name: ")
+		input, _ := reader.ReadString('\n')
+		projName = config.NormalizeProjectName(input)
+		
+		if projName == "" {
+			fmt.Println("❌ Project name cannot be empty and must contain alphanumeric characters")
+			continue
+		}
+		
+		if config.IsValidProjectName(projName) {
+			if projName != strings.TrimSpace(strings.ToLower(input)) {
+				fmt.Printf("📝 Normalized project name to: %s\n", projName)
+			}
+			break
+		}
+		fmt.Println("❌ Invalid project name. Use only letters, numbers, and underscores.")
+	}
 
 	fmt.Print("Domain (e.g. app.example.com): ")
 	domain, _ := reader.ReadString('\n')
@@ -246,9 +262,9 @@ func runHostInit() {
 			os.Remove(tmpFile)
 		} else {
 			fmt.Println("🔐 Generating new secure credentials for Postgres...")
-			cfg.Infra.PostgresUser = "graft_admin_" + config.GenerateRandomString(4)
+			cfg.Infra.PostgresUser = strings.ToLower("graft_admin_" + config.GenerateRandomString(4))
 			cfg.Infra.PostgresPassword = config.GenerateRandomString(24)
-			cfg.Infra.PostgresDB = "graft_master_" + config.GenerateRandomString(4)
+			cfg.Infra.PostgresDB = strings.ToLower("graft_master_" + config.GenerateRandomString(4))
 		}
 	}
 
@@ -301,6 +317,12 @@ func runHostClean() {
 }
 
 func runInfraInit(typ, name string) {
+	name = config.NormalizeProjectName(name)
+	if name == "" {
+		fmt.Printf("Error: Invalid %s name. Use only letters, numbers, and underscores.\n", typ)
+		return
+	}
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found.")

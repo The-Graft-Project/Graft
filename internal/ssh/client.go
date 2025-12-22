@@ -157,7 +157,7 @@ func (c *Client) RsyncDirectory(localDir, remoteDir string, stdout, stderr io.Wr
 	
 	// Essential hardcoded exclusions (always excluded regardless of .gitignore)
 	essentialExcludes := []string{
-		".git",
+		//".git",
 		"node_modules",
 		".next",
 	
