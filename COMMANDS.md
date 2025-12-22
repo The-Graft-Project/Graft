@@ -158,6 +158,41 @@ graft sync -p                 # Partial sync (upload only, no build)
 - **--no-cache:** Clears build cache and forces fresh build
 - **-p, --partial:** Partial sync. Performs uploads but skips the build and start steps on the server. Useful for stage-building or manual verification.
 
+**Git-Based Sync:**
+
+Deploy from specific git commits or branches instead of your working directory:
+
+```bash
+# Deploy latest commit on current branch
+graft sync --git
+
+# Deploy from specific branch
+graft sync --git --branch develop
+
+# Deploy specific commit
+graft sync --git --commit abc1234
+
+# Combine with other flags
+graft sync --git --branch main --no-cache
+```
+
+**Git Flags:**
+- `--git` - Enable git-based deployment
+- `--branch <name>` - Deploy from specific branch (default: current branch)
+- `--commit <hash>` - Deploy specific commit (default: latest on branch)
+
+**How it works:**
+1. Checks for `.git` directory
+2. Exports specified commit using `git archive` (doesn't modify working directory)
+3. Uploads exported files to server
+4. Builds and deploys normally
+
+**Benefits:**
+- ✅ Deploy exact commit state (ignores uncommitted changes)
+- ✅ Working directory remains unchanged
+- ✅ Perfect for CI/CD pipelines
+- ✅ Deploy historical commits for rollback
+
 ---
 
 ### `graft sync <service>`
@@ -168,6 +203,10 @@ graft sync backend            # Deploy only backend
 graft sync frontend           # Deploy only frontend
 graft sync backend --no-cache # Force fresh build
 graft sync backend -p         # Upload code for backend ONLY (no build)
+
+# Git-based service sync
+graft sync backend --git                    # Deploy backend from latest commit
+graft sync frontend --git --branch develop  # Deploy frontend from develop branch
 ```
 
 **What it does:**
@@ -360,6 +399,21 @@ graft sync compose
 graft restart backend
 ```
 
+### Git-Based Deployment
+```bash
+# Deploy specific commit (e.g., for rollback)
+graft sync --git --commit abc1234
+
+# Deploy from feature branch for testing
+graft sync --git --branch feature/new-api
+
+# Deploy specific service from git
+graft sync backend --git --branch develop
+
+# CI/CD pipeline usage
+graft sync --git --commit $CI_COMMIT_SHA --no-cache
+```
+
 ---
 
 ## File Structure
@@ -507,7 +561,7 @@ graft exec backend sh
 - `graft init` - Initialize project
 - `graft db <name> init` - Create database
 - `graft redis <name> init` - Create Redis instance
-- `graft sync [service] [--no-cache] [-p]` - Deploy
+- `graft sync [service] [--no-cache] [-p] [--git] [--branch <name>] [--commit <hash>]` - Deploy
 - `graft sync compose [-p]` - Update compose only
 - `graft logs <service>` - Stream logs
 

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
+	"github.com/skssmd/graft/internal/git"
 	"github.com/skssmd/graft/internal/ssh"
 	"gopkg.in/yaml.v3"
 )
@@ -136,7 +137,7 @@ func createTarball(sourceDir, tarballPath string) error {
 }
 
 // SyncService syncs only a specific service
-func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, partial bool, stdout, stderr io.Writer) error {
+func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, partial, useGit bool, gitBranch, gitCommit string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "🎯 Syncing service: %s\n", serviceName)
 
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
@@ -193,6 +194,74 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, pa
 			return fmt.Errorf("Dockerfile not found: %s\n👉 Checked path: %s\n👉 Please check the 'dockerfile' field in your graft.yml and ensure the file exists and casing matches EXACTLY (Linux is case-sensitive!).", dockerfileName, dockerfilePath)
 		}
 
+		// Handle git-based sync if enabled
+		var actualContextPath string
+		var cleanupFunc func()
+		
+		if useGit {
+			// Check if git repo exists
+			if !git.HasGitRepo(".") {
+				return fmt.Errorf("--git flag used but no git repository found (.git directory missing)")
+			}
+			
+			// Determine branch
+			branch := gitBranch
+			if branch == "" {
+				branch, err = git.GetCurrentBranch(".")
+				if err != nil {
+					return fmt.Errorf("failed to get current branch: %v", err)
+				}
+			}
+			
+			// Determine commit
+			commit := gitCommit
+			if commit == "" {
+				commit, err = git.GetLatestCommit(".", branch)
+				if err != nil {
+					return fmt.Errorf("failed to get latest commit: %v", err)
+				}
+			}
+			
+			fmt.Fprintf(stdout, "📦 Git mode: branch=%s, commit=%s\n", branch, commit[:7])
+			
+			// Create temp directory for git export
+			tempDir, err := os.MkdirTemp("", "graft-git-*")
+			if err != nil {
+				return fmt.Errorf("failed to create temp directory: %v", err)
+			}
+			
+			// Setup cleanup
+			cleanupFunc = func() {
+				os.RemoveAll(tempDir)
+			}
+			defer cleanupFunc()
+			
+			// Export git commit to tarball (filter to service context path)
+			tarballPath := filepath.Join(tempDir, "export.tar.gz")
+			contextRelPath := contextPath
+			if filepath.IsAbs(contextPath) {
+				contextRelPath, _ = filepath.Rel(".", contextPath)
+			}
+			
+			err = git.CreateArchive(".", commit, tarballPath, []string{contextRelPath + "/"})
+			if err != nil {
+				return fmt.Errorf("failed to create git archive: %v", err)
+			}
+			
+			// Extract to temp directory
+			extractDir := filepath.Join(tempDir, "extracted")
+			err = git.ExtractArchive(tarballPath, extractDir)
+			if err != nil {
+				return fmt.Errorf("failed to extract git archive: %v", err)
+			}
+			
+			// Update context path to extracted directory
+			actualContextPath = filepath.Join(extractDir, contextRelPath)
+			fmt.Fprintf(stdout, "📦 Exported git commit to temp directory\n")
+		} else {
+			actualContextPath = contextPath
+		}
+
 		fmt.Fprintf(stdout, "📦 Syncing source code with rsync (incremental)...\n")
 		contextName := filepath.Base(contextPath)
 		if contextName == "." || contextName == "/" {
@@ -208,8 +277,8 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, pa
 		}
 		
 		// Try rsync first, fall back to tarball if rsync is not available
-		fmt.Fprintf(stdout, "📤 Uploading changes from %s...\n", contextPath)
-		rsyncErr := client.RsyncDirectory(contextPath, serviceDir, stdout, stderr)
+		fmt.Fprintf(stdout, "📤 Uploading changes from %s...\n", actualContextPath)
+		rsyncErr := client.RsyncDirectory(actualContextPath, serviceDir, stdout, stderr)
 		
 		if rsyncErr != nil {
 			// Check if error is due to rsync not being found
@@ -218,7 +287,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, pa
 				
 				// Fall back to tarball method
 				tarballPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s.tar.gz", p.Name, contextName))
-				if err := createTarball(contextPath, tarballPath); err != nil {
+				if err := createTarball(actualContextPath, tarballPath); err != nil {
 					return fmt.Errorf("failed to create tarball: %v", err)
 				}
 				defer os.Remove(tarballPath)
@@ -308,7 +377,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, pa
 	return nil
 }
 
-func Sync(client *ssh.Client, p *Project, noCache, partial bool, stdout, stderr io.Writer) error {
+func Sync(client *ssh.Client, p *Project, noCache, partial, useGit bool, gitBranch, gitCommit string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "🚀 Syncing project: %s\n", p.Name)
 
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
@@ -338,6 +407,68 @@ func Sync(client *ssh.Client, p *Project, noCache, partial bool, stdout, stderr 
 		return fmt.Errorf("failed to parse compose file: %v", err)
 	}
 
+	// Handle git-based sync if enabled
+	var workingDir string
+	var cleanupFunc func()
+	
+	if useGit {
+		// Check if git repo exists
+		if !git.HasGitRepo(".") {
+			return fmt.Errorf("--git flag used but no git repository found (.git directory missing)")
+		}
+		
+		// Determine branch
+		branch := gitBranch
+		if branch == "" {
+			branch, err = git.GetCurrentBranch(".")
+			if err != nil {
+				return fmt.Errorf("failed to get current branch: %v", err)
+			}
+		}
+		
+		// Determine commit
+		commit := gitCommit
+		if commit == "" {
+			commit, err = git.GetLatestCommit(".", branch)
+			if err != nil {
+				return fmt.Errorf("failed to get latest commit: %v", err)
+			}
+		}
+		
+		fmt.Fprintf(stdout, "📦 Git mode: branch=%s, commit=%s\n", branch, commit[:7])
+		
+		// Create temp directory for git export
+		tempDir, err := os.MkdirTemp("", "graft-git-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp directory: %v", err)
+		}
+		
+		// Setup cleanup
+		cleanupFunc = func() {
+			os.RemoveAll(tempDir)
+		}
+		defer cleanupFunc()
+		
+		// Export entire git commit to tarball
+		tarballPath := filepath.Join(tempDir, "export.tar.gz")
+		err = git.CreateArchive(".", commit, tarballPath, nil) // nil = export everything
+		if err != nil {
+			return fmt.Errorf("failed to create git archive: %v", err)
+		}
+		
+		// Extract to temp directory
+		extractDir := filepath.Join(tempDir, "extracted")
+		err = git.ExtractArchive(tarballPath, extractDir)
+		if err != nil {
+			return fmt.Errorf("failed to extract git archive: %v", err)
+		}
+		
+		workingDir = extractDir
+		fmt.Fprintf(stdout, "📦 Exported git commit to temp directory\n")
+	} else {
+		workingDir = "."
+	}
+
 	// Process each service based on graft.mode
 	for serviceName, service := range compose.Services {
 		mode := getGraftMode(service.Labels)
@@ -348,6 +479,11 @@ func Sync(client *ssh.Client, p *Project, noCache, partial bool, stdout, stderr 
 			contextPath := service.Build.Context
 			if !filepath.IsAbs(contextPath) {
 				contextPath = filepath.Clean(contextPath)
+			}
+			
+			// If using git, resolve context path relative to workingDir
+			if useGit {
+				contextPath = filepath.Join(workingDir, contextPath)
 			}
 
 			// Verify build context exists

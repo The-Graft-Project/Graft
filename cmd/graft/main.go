@@ -336,14 +336,25 @@ func runSync() {
 	var serviceName string
 	var noCache bool
 	var partial bool
+	var useGit bool
+	var gitBranch string
+	var gitCommit string
 	
-	// Parse arguments: graft sync [service] [--no-cache] [-p|--partial]
+	// Parse arguments: graft sync [service] [--no-cache] [-p|--partial] [--git] [--branch <name>] [--commit <hash>]
 	for i := 2; i < len(os.Args); i++ {
 		arg := os.Args[i]
 		if arg == "--no-cache" {
 			noCache = true
 		} else if arg == "-p" || arg == "--partial" {
 			partial = true
+		} else if arg == "--git" {
+			useGit = true
+		} else if arg == "--branch" && i+1 < len(os.Args) {
+			gitBranch = os.Args[i+1]
+			i++ // Skip next arg
+		} else if arg == "--commit" && i+1 < len(os.Args) {
+			gitCommit = os.Args[i+1]
+			i++ // Skip next arg
 		} else if serviceName == "" {
 			serviceName = arg
 		}
@@ -377,21 +388,27 @@ func runSync() {
 
 	if serviceName != "" {
 		fmt.Printf("🎯 Syncing service: %s\n", serviceName)
+		if useGit {
+			fmt.Println("📦 Git mode enabled")
+		}
 		if noCache {
 			fmt.Println("🔥 No-cache mode enabled")
 		}
 		if partial {
 			fmt.Println("📦 Partial sync enabled (upload only)")
 		}
-		err = deploy.SyncService(client, p, serviceName, noCache, partial, os.Stdout, os.Stderr)
+		err = deploy.SyncService(client, p, serviceName, noCache, partial, useGit, gitBranch, gitCommit, os.Stdout, os.Stderr)
 	} else {
+		if useGit {
+			fmt.Println("📦 Git mode enabled")
+		}
 		if noCache {
 			fmt.Println("🔥 No-cache mode enabled")
 		}
 		if partial {
 			fmt.Println("🚀 Partial sync enabled (upload only)")
 		}
-		err = deploy.Sync(client, p, noCache, partial, os.Stdout, os.Stderr)
+		err = deploy.Sync(client, p, noCache, partial, useGit, gitBranch, gitCommit, os.Stdout, os.Stderr)
 	}
 
 	if err != nil {
