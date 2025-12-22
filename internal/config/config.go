@@ -12,10 +12,11 @@ import (
 const RemoteInfraPath = "/opt/graft/infra/.config"
 
 type ServerConfig struct {
-	Host    string `json:"host"`
-	Port    int    `json:"port"`
-	User    string `json:"user"`
-	KeyPath string `json:"key_path"`
+	RegistryName string `json:"registry_name,omitempty"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+	User         string `json:"user"`
+	KeyPath      string `json:"key_path"`
 }
 
 type InfraConfig struct {
@@ -27,6 +28,16 @@ type InfraConfig struct {
 type GraftConfig struct {
 	Server ServerConfig `json:"server"`
 	Infra  InfraConfig  `json:"infra,omitempty"`
+}
+
+type GlobalConfig struct {
+	Servers  map[string]ServerConfig `json:"servers"`
+	Projects map[string]string       `json:"projects"`
+}
+
+func GetGlobalRegistryPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".graft", "registry.json")
 }
 
 func GetGlobalConfigPath() string {
@@ -63,6 +74,42 @@ func loadFile(path string) (*GraftConfig, error) {
 	}
 
 	return &cfg, nil
+}
+
+func LoadGlobalConfig() (*GlobalConfig, error) {
+	path := GetGlobalRegistryPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		// Return empty registry if not found
+		return &GlobalConfig{
+			Servers:  make(map[string]ServerConfig),
+			Projects: make(map[string]string),
+		}, nil
+	}
+
+	var cfg GlobalConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Servers == nil { cfg.Servers = make(map[string]ServerConfig) }
+	if cfg.Projects == nil { cfg.Projects = make(map[string]string) }
+
+	return &cfg, nil
+}
+
+func SaveGlobalConfig(cfg *GlobalConfig) error {
+	path := GetGlobalRegistryPath()
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
 }
 
 func SaveConfig(cfg *GraftConfig, local bool) error {
@@ -132,7 +179,7 @@ type ProjectMetadata struct {
 	Initialized bool `json:"initialized"`
 }
 
-// SaveProjectMetadata saves project metadata to .graft/project.json
+// SaveProjectMetadata saves project metadata to .graft/project.json and registers it globally
 func SaveProjectMetadata(meta *ProjectMetadata) error {
 	dir := ".graft"
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -145,7 +192,20 @@ func SaveProjectMetadata(meta *ProjectMetadata) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return err
+	}
+
+	// Register globally
+	absPath, _ := filepath.Abs(".")
+	gCfg, _ := LoadGlobalConfig()
+	if gCfg != nil {
+		if gCfg.Projects == nil { gCfg.Projects = make(map[string]string) }
+		gCfg.Projects[meta.Name] = absPath
+		SaveGlobalConfig(gCfg)
+	}
+
+	return nil
 }
 
 // LoadProjectMetadata loads project metadata from .graft/project.json

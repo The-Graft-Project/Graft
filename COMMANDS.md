@@ -8,10 +8,27 @@ Complete reference for all Graft commands.
 
 Graft uses a **hybrid command architecture**:
 
-1. **Native Commands** - Handled directly by Graft (init, config, sync, etc.)
+1. **Native Commands** - Handled directly by Graft (init, host, sync, etc.)
 2. **Passthrough Commands** - Any other command is forwarded to `docker compose` on the remote server
 
-This means you can use **any** `docker compose` command through Graft!
+---
+
+## Global Context Flag
+
+### `-p, --project <name>`
+Run any Graft command for a specific project from **any directory**.
+
+```bash
+graft -p my-project sync -h
+graft -p my-project ps
+graft -p my-project logs backend
+```
+
+**How it works:**
+- Graft looks for the project name in the global registry (`~/.graft/registry.json`).
+- If found, it automatically changes the working directory to the project's absolute path.
+- The command is then executed as if you were inside that directory.
+- This works for both native and passthrough commands.
 
 ---
 
@@ -25,13 +42,12 @@ Initialize a new Graft project in the current directory and Configure server con
 graft init
 ```
 
-**Prompts:**
-- Server host (IP or domain)
-- SSH port (default: 22)
-- SSH user (default: root)
-- SSH key path (default: ~/.ssh/id_rsa)
-- Project name
-- Domain name
+**Interactive Setup:**
+1. **Server Selection**: Select an existing server from your global registry or type `/new`.
+2. **Host Configuration** (if new): Enter IP, port, user, and key path.
+3. **Registry Name** (if new): Provide a unique name to save the server globally.
+4. **Project Name**: Name of your project (normalized to lowercase/underscores).
+5. **Domain Name**: The domain Traefik will use for routing.
 
 **Creates:**
 - `graft-compose.yml` - Docker Compose configuration

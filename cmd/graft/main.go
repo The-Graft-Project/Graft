@@ -22,17 +22,43 @@ func main() {
 		return
 	}
 
-	command := os.Args[1]
+	args := os.Args[1:]
+
+	// Handle project context flag: graft -p projectname ...
+	if args[0] == "-p" || args[0] == "--project" {
+		if len(args) < 3 {
+			fmt.Println("Usage: graft -p <projectname> <command>")
+			return
+		}
+		projectName := args[1]
+		args = args[2:]
+
+		// Lookup project path
+		gCfg, _ := config.LoadGlobalConfig()
+		if gCfg == nil || gCfg.Projects == nil || gCfg.Projects[projectName] == "" {
+			fmt.Printf("Error: Project '%s' not found in global registry\n", projectName)
+			return
+		}
+
+		projectPath := gCfg.Projects[projectName]
+		if err := os.Chdir(projectPath); err != nil {
+			fmt.Printf("Error: Could not enter project directory: %v\n", err)
+			return
+		}
+		fmt.Printf("📂 Context: %s (%s)\n", projectName, projectPath)
+	}
+
+	command := args[0]
 
 	switch command {
 	case "init":
 		runInit()
 	case "host":
-		if len(os.Args) < 3 {
+		if len(args) < 2 {
 			fmt.Println("Usage: graft host [init|clean]")
 			return
 		}
-		switch os.Args[2] {
+		switch args[1] {
 		case "init":
 			runHostInit()
 		case "clean":
@@ -41,45 +67,50 @@ func main() {
 			fmt.Println("Usage: graft host [init|clean]")
 		}
 	case "db":
-		if len(os.Args) < 4 || os.Args[3] != "init" {
+		if len(args) < 3 || args[2] != "init" {
 			fmt.Println("Usage: graft db <name> init")
 			return
 		}
-		runInfraInit("postgres", os.Args[2])
+		runInfraInit("postgres", args[1])
 	case "redis":
-		if len(os.Args) < 4 || os.Args[3] != "init" {
+		if len(args) < 3 || args[2] != "init" {
 			fmt.Println("Usage: graft redis <name> init")
 			return
 		}
-		runInfraInit("redis", os.Args[2])
+		runInfraInit("redis", args[1])
 	case "logs":
-		if len(os.Args) < 3 {
+		if len(args) < 2 {
 			fmt.Println("Usage: graft logs <service>")
 			return
 		}
-		runLogs(os.Args[2])
+		runLogs(args[1])
 	case "sync":
 		// Check if "compose" subcommand is specified
-		if len(os.Args) > 2 && os.Args[2] == "compose" {
-			runSyncCompose()
+		if len(args) > 1 && args[1] == "compose" {
+			runSyncCompose(args[1:])
 		} else {
-			runSync()
+			runSync(args[1:])
 		}
 	default:
 		// Pass through to docker compose for any other command
-		runDockerCompose(os.Args[1:])
+		runDockerCompose(args)
 	}
 }
 
 func printUsage() {
 	fmt.Println("Graft CLI - Interactive Deployment Tool")
 	fmt.Println("\nUsage:")
-	fmt.Println("  graft init               Initialize local project")
-	fmt.Println("  graft host init          Setup remote server")
-	fmt.Println("  graft host clean         Clean Docker caches")
-	fmt.Println("  graft db <name> init     Deploy Postgres instance")
-	fmt.Println("  graft redis <name> init  Deploy Redis instance")
-	fmt.Println("  graft sync               Deploy project to server")
+	fmt.Println("  graft [flags] <command> [args]")
+	fmt.Println("\nFlags:")
+	fmt.Println("  -p, --project <name>     Run command in specific project context")
+	fmt.Println("\nCommands:")
+	fmt.Println("  init                     Initialize local project")
+	fmt.Println("  host init                Setup remote server")
+	fmt.Println("  host clean               Clean Docker caches")
+	fmt.Println("  db <name> init           Deploy Postgres instance")
+	fmt.Println("  redis <name> init        Deploy Redis instance")
+	fmt.Println("  sync [service]           Deploy project to server")
+	fmt.Println("  logs <service>           Stream service logs")
 }
 
 // Helper to load only global config (not local)
@@ -99,67 +130,56 @@ func loadGlobalConfig() (*config.GraftConfig, error) {
 func runInit() {
 	reader := bufio.NewReader(os.Stdin)
 
-	// Check ONLY for global config (not local)
-	globalCfg, _ := loadGlobalConfig()
+	// Load global registry
+	gCfg, _ := config.LoadGlobalConfig()
 	
 	var host, user, keyPath string
 	var port int
+	var registryName string
 
-	if globalCfg != nil {
-		// Show existing config and ask for confirmation
-		fmt.Println("\n📋 Found existing global configuration:")
-		fmt.Printf("  Host: %s\n", globalCfg.Server.Host)
-		fmt.Printf("  Port: %d\n", globalCfg.Server.Port)
-		fmt.Printf("  User: %s\n", globalCfg.Server.User)
-		fmt.Printf("  Key:  %s\n", globalCfg.Server.KeyPath)
-		fmt.Print("\nUse this configuration? (y/n): ")
+	if gCfg != nil && len(gCfg.Servers) > 0 {
+		fmt.Println("\n📋 Available servers in registry:")
+		var keys []string
+		i := 1
+		for name, srv := range gCfg.Servers {
+			fmt.Printf("  [%d] %s (%s)\n", i, name, srv.Host)
+			keys = append(keys, name)
+			i++
+		}
+		fmt.Printf("\nSelect a server [1-%d] or type '/new' for a new connection: ", len(keys))
 		
-		confirm, _ := reader.ReadString('\n')
-		confirm = strings.ToLower(strings.TrimSpace(confirm))
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
 		
-		if confirm == "y" || confirm == "yes" {
-			host = globalCfg.Server.Host
-			user = globalCfg.Server.User
-			port = globalCfg.Server.Port
-			keyPath = globalCfg.Server.KeyPath
-			fmt.Println("✅ Using global configuration")
+		if input == "/new" {
+			host, port, user, keyPath = promptNewServer(reader)
+			fmt.Print("Registry Name (e.g. prod-us): ")
+			registryName, _ = reader.ReadString('\n')
+			registryName = strings.TrimSpace(registryName)
 		} else {
-			fmt.Println("\n🔧 Enter new server details:")
-			fmt.Print("Host IP: ")
-			host, _ = reader.ReadString('\n')
-			host = strings.TrimSpace(host)
-
-			fmt.Print("Port (22): ")
-			portStr, _ := reader.ReadString('\n')
-			port, _ = strconv.Atoi(strings.TrimSpace(portStr))
-			if port == 0 { port = 22 }
-
-			fmt.Print("User: ")
-			user, _ = reader.ReadString('\n')
-			user = strings.TrimSpace(user)
-
-			fmt.Print("Key Path: ")
-			keyPath, _ = reader.ReadString('\n')
-			keyPath = strings.TrimSpace(keyPath)
+			idx, err := strconv.Atoi(input)
+			if err == nil && idx > 0 && idx <= len(keys) {
+				selected := gCfg.Servers[keys[idx-1]]
+				host = selected.Host
+				user = selected.User
+				port = selected.Port
+				keyPath = selected.KeyPath
+				registryName = selected.RegistryName
+				fmt.Printf("✅ Using server: %s\n", registryName)
+			} else {
+				fmt.Println("Invalid selection, entering new server details...")
+				host, port, user, keyPath = promptNewServer(reader)
+				fmt.Print("Registry Name (e.g. prod-us): ")
+				registryName, _ = reader.ReadString('\n')
+				registryName = strings.TrimSpace(registryName)
+			}
 		}
 	} else {
-		fmt.Println("No global config found. Enter server details:")
-		fmt.Print("Host IP: ")
-		host, _ = reader.ReadString('\n')
-		host = strings.TrimSpace(host)
-
-		fmt.Print("Port (22): ")
-		portStr, _ := reader.ReadString('\n')
-		port, _ = strconv.Atoi(strings.TrimSpace(portStr))
-		if port == 0 { port = 22 }
-
-		fmt.Print("User: ")
-		user, _ = reader.ReadString('\n')
-		user = strings.TrimSpace(user)
-
-		fmt.Print("Key Path: ")
-		keyPath, _ = reader.ReadString('\n')
-		keyPath = strings.TrimSpace(keyPath)
+		fmt.Println("No servers found in registry. Enter new server details:")
+		host, port, user, keyPath = promptNewServer(reader)
+		fmt.Print("Registry Name (e.g. prod-us): ")
+		registryName, _ = reader.ReadString('\n')
+		registryName = strings.TrimSpace(registryName)
 	}
 
 	var projName string
@@ -189,14 +209,20 @@ func runInit() {
 	// Save local config
 	cfg := &config.GraftConfig{
 		Server: config.ServerConfig{
-			Host: host, Port: port, User: user, KeyPath: keyPath,
+			RegistryName: registryName,
+			Host:         host, Port: port, User: user, KeyPath: keyPath,
 		},
 	}
 	config.SaveConfig(cfg, true) // local
 
-	// Save global if not exists
-	if globalCfg == nil {
-		config.SaveConfig(cfg, false) // global
+	// Update global registry if new
+	if gCfg == nil {
+		gCfg, _ = config.LoadGlobalConfig()
+	}
+	if gCfg != nil {
+		if gCfg.Servers == nil { gCfg.Servers = make(map[string]config.ServerConfig) }
+		gCfg.Servers[registryName] = cfg.Server
+		config.SaveGlobalConfig(gCfg)
 	}
 
 	// Generate boilerplate
@@ -231,8 +257,25 @@ func runHostInit() {
 	}
 	defer client.Close()
 
-	// Ask about shared infrastructure
 	reader := bufio.NewReader(os.Stdin)
+
+	// Save or update registry name
+	if cfg.Server.RegistryName == "" {
+		fmt.Print("Enter a Registry Name for this server (e.g. prod-us): ")
+		name, _ := reader.ReadString('\n')
+		cfg.Server.RegistryName = strings.TrimSpace(name)
+		config.SaveConfig(cfg, true) // Update local
+	}
+
+	// Register in global registry
+	gCfg, _ := config.LoadGlobalConfig()
+	if gCfg != nil {
+		if gCfg.Servers == nil { gCfg.Servers = make(map[string]config.ServerConfig) }
+		gCfg.Servers[cfg.Server.RegistryName] = cfg.Server
+		config.SaveGlobalConfig(gCfg)
+	}
+
+	// Ask about shared infrastructure
 	fmt.Println("\n🗄️  Shared Infrastructure Setup")
 	
 	fmt.Print("Setup shared Postgres instance? (y/n): ")
@@ -353,7 +396,7 @@ func runInfraInit(typ, name string) {
 	fmt.Printf("Connection URL: %s\n", url)
 }
 
-func runSync() {
+func runSync(args []string) {
 	// Check if a specific service is specified
 	var serviceName string
 	var noCache bool
@@ -362,20 +405,20 @@ func runSync() {
 	var gitBranch string
 	var gitCommit string
 	
-	// Parse arguments: graft sync [service] [--no-cache] [-h|--heave] [--git] [--branch <name>] [--commit <hash>]
-	for i := 2; i < len(os.Args); i++ {
-		arg := os.Args[i]
+	// Parse arguments: [service] [--no-cache] [-h|--heave] [--git] [--branch <name>] [--commit <hash>]
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if arg == "--no-cache" {
 			noCache = true
 		} else if arg == "-h" || arg == "--heave" {
 			heave = true
 		} else if arg == "--git" {
 			useGit = true
-		} else if arg == "--branch" && i+1 < len(os.Args) {
-			gitBranch = os.Args[i+1]
+		} else if arg == "--branch" && i+1 < len(args) {
+			gitBranch = args[i+1]
 			i++ // Skip next arg
-		} else if arg == "--commit" && i+1 < len(os.Args) {
-			gitCommit = os.Args[i+1]
+		} else if arg == "--commit" && i+1 < len(args) {
+			gitCommit = args[i+1]
 			i++ // Skip next arg
 		} else if serviceName == "" {
 			serviceName = arg
@@ -443,11 +486,11 @@ func runSync() {
 	}
 }
 
-func runSyncCompose() {
+func runSyncCompose(args []string) {
 	var heave bool
-	// Parse arguments: graft sync compose [-h|--heave]
-	for i := 3; i < len(os.Args); i++ {
-		arg := os.Args[i]
+	// Parse arguments: compose [-h|--heave]
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if arg == "-h" || arg == "--heave" {
 			heave = true
 		}
@@ -553,4 +596,25 @@ func runDockerCompose(args []string) {
 	if err := client.RunCommand(composeCmd, os.Stdout, os.Stderr); err != nil {
 		fmt.Printf("\nError: %v\n", err)
 	}
+}
+
+func promptNewServer(reader *bufio.Reader) (string, int, string, string) {
+	fmt.Print("Host IP: ")
+	host, _ := reader.ReadString('\n')
+	host = strings.TrimSpace(host)
+
+	fmt.Print("Port (22): ")
+	portStr, _ := reader.ReadString('\n')
+	port, _ := strconv.Atoi(strings.TrimSpace(portStr))
+	if port == 0 { port = 22 }
+
+	fmt.Print("User: ")
+	user, _ := reader.ReadString('\n')
+	user = strings.TrimSpace(user)
+
+	fmt.Print("Key Path: ")
+	keyPath, _ := reader.ReadString('\n')
+	keyPath = strings.TrimSpace(keyPath)
+
+	return host, port, user, keyPath
 }
