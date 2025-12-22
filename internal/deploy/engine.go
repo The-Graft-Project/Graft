@@ -341,7 +341,9 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, pa
 		if err := client.UploadFile(tmpFile, remoteCompose); err != nil {
 			return err
 		}
-		return nil // Partial sync ends here
+		if partial {
+			return nil // Partial sync ends here
+		}
 	}
 
 	// Stop and remove the old container
@@ -350,20 +352,29 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, pa
 	client.RunCommand(stopCmd, stdout, stderr) // Ignore errors if container doesn't exist
 
 	// Conditionally clear build cache
-	var buildCmd string
 	if noCache {
 		fmt.Fprintf(stdout, "🧹 Clearing build cache for fresh build...\n")
 		pruneCmd := "sudo docker builder prune -f"
 		client.RunCommand(pruneCmd, stdout, stderr) // Ignore errors
-		
-		fmt.Fprintf(stdout, "🔨 Building and starting %s (no cache)...\n", serviceName)
-		buildCmd = fmt.Sprintf("cd %s && sudo docker compose build --no-cache %s && sudo docker compose up -d %s", remoteDir, serviceName, serviceName)
+	}
+	
+	// Build the service (separate command to show build logs)
+	fmt.Fprintf(stdout, "🔨 Building %s...\n", serviceName)
+	var buildCmd string
+	if noCache {
+		buildCmd = fmt.Sprintf("cd %s && sudo docker compose build --no-cache %s", remoteDir, serviceName)
 	} else {
-		fmt.Fprintf(stdout, "🔨 Building and starting %s...\n", serviceName)
-		buildCmd = fmt.Sprintf("cd %s && sudo docker compose up -d --build %s", remoteDir, serviceName)
+		buildCmd = fmt.Sprintf("cd %s && sudo docker compose build %s", remoteDir, serviceName)
 	}
 	
 	if err := client.RunCommand(buildCmd, stdout, stderr); err != nil {
+		return fmt.Errorf("build failed: %v", err)
+	}
+	
+	// Start the service
+	fmt.Fprintf(stdout, "� Starting %s...\n", serviceName)
+	upCmd := fmt.Sprintf("cd %s && sudo docker compose up -d %s", remoteDir, serviceName)
+	if err := client.RunCommand(upCmd, stdout, stderr); err != nil {
 		return err
 	}
 
@@ -607,15 +618,20 @@ func Sync(client *ssh.Client, p *Project, noCache, partial, useGit bool, gitBran
 		pruneCmd := "sudo docker builder prune -f"
 		client.RunCommand(pruneCmd, stdout, stderr) // Ignore errors
 		
-		fmt.Fprintln(stdout, "🔨 Building and starting services (no cache)...")
-		if err := client.RunCommand(fmt.Sprintf("cd %s && sudo docker compose build --no-cache && sudo docker compose up -d --remove-orphans", remoteDir), stdout, stderr); err != nil {
-			return err
+		fmt.Fprintln(stdout, "🔨 Building services (no cache)...")
+		if err := client.RunCommand(fmt.Sprintf("cd %s && sudo docker compose build --no-cache", remoteDir), stdout, stderr); err != nil {
+			return fmt.Errorf("build failed: %v", err)
 		}
 	} else {
-		fmt.Fprintln(stdout, "🔨 Building and starting services...")
-		if err := client.RunCommand(fmt.Sprintf("cd %s && sudo docker compose up -d --build --remove-orphans", remoteDir), stdout, stderr); err != nil {
-			return err
+		fmt.Fprintln(stdout, "🔨 Building services...")
+		if err := client.RunCommand(fmt.Sprintf("cd %s && sudo docker compose build", remoteDir), stdout, stderr); err != nil {
+			return fmt.Errorf("build failed: %v", err)
 		}
+	}
+
+	fmt.Fprintln(stdout, "� Starting services...")
+	if err := client.RunCommand(fmt.Sprintf("cd %s && sudo docker compose up -d --remove-orphans", remoteDir), stdout, stderr); err != nil {
+		return err
 	}
 
 	// Cleanup: Remove only dangling images (keep build cache for faster rebuilds)
