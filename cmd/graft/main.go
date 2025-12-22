@@ -335,12 +335,15 @@ func runSync() {
 	// Check if a specific service is specified
 	var serviceName string
 	var noCache bool
+	var partial bool
 	
-	// Parse arguments: graft sync [service] [--no-cache]
+	// Parse arguments: graft sync [service] [--no-cache] [-p|--partial]
 	for i := 2; i < len(os.Args); i++ {
 		arg := os.Args[i]
 		if arg == "--no-cache" {
 			noCache = true
+		} else if arg == "-p" || arg == "--partial" {
+			partial = true
 		} else if serviceName == "" {
 			serviceName = arg
 		}
@@ -377,12 +380,18 @@ func runSync() {
 		if noCache {
 			fmt.Println("🔥 No-cache mode enabled")
 		}
-		err = deploy.SyncService(client, p, serviceName, noCache, os.Stdout, os.Stderr)
+		if partial {
+			fmt.Println("📦 Partial sync enabled (upload only)")
+		}
+		err = deploy.SyncService(client, p, serviceName, noCache, partial, os.Stdout, os.Stderr)
 	} else {
 		if noCache {
 			fmt.Println("🔥 No-cache mode enabled")
 		}
-		err = deploy.Sync(client, p, noCache, os.Stdout, os.Stderr)
+		if partial {
+			fmt.Println("🚀 Partial sync enabled (upload only)")
+		}
+		err = deploy.Sync(client, p, noCache, partial, os.Stdout, os.Stderr)
 	}
 
 	if err != nil {
@@ -390,10 +399,21 @@ func runSync() {
 		return
 	}
 
-	fmt.Println("\n✅ Sync complete!")
+	if !partial {
+		fmt.Println("\n✅ Sync complete!")
+	}
 }
 
 func runSyncCompose() {
+	var partial bool
+	// Parse arguments: graft sync compose [-p|--partial]
+	for i := 3; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		if arg == "-p" || arg == "--partial" {
+			partial = true
+		}
+	}
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found.")
@@ -420,13 +440,19 @@ func runSyncCompose() {
 	}
 	defer client.Close()
 
-	err = deploy.SyncComposeOnly(client, p, os.Stdout, os.Stderr)
+	if partial {
+		fmt.Println("📄 Partial sync enabled (config upload only)")
+	}
+
+	err = deploy.SyncComposeOnly(client, p, partial, os.Stdout, os.Stderr)
 	if err != nil {
 		fmt.Printf("Error during sync: %v\n", err)
 		return
 	}
 
-	fmt.Println("\n✅ Compose sync complete!")
+	if !partial {
+		fmt.Println("\n✅ Compose sync complete!")
+	}
 }
 
 func runLogs(serviceName string) {

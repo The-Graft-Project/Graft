@@ -136,7 +136,7 @@ func createTarball(sourceDir, tarballPath string) error {
 }
 
 // SyncService syncs only a specific service
-func SyncService(client *ssh.Client, p *Project, serviceName string, noCache bool, stdout, stderr io.Writer) error {
+func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, partial bool, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "🎯 Syncing service: %s\n", serviceName)
 
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
@@ -251,6 +251,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache boo
 		if err := client.UploadFile(tmpFile, remoteCompose); err != nil {
 			return err
 		}
+		return nil // Partial sync ends here
 	}
 
 	// Stop and remove the old container
@@ -286,7 +287,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache boo
 	return nil
 }
 
-func Sync(client *ssh.Client, p *Project, noCache bool, stdout, stderr io.Writer) error {
+func Sync(client *ssh.Client, p *Project, noCache, partial bool, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "🚀 Syncing project: %s\n", p.Name)
 
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
@@ -416,6 +417,11 @@ func Sync(client *ssh.Client, p *Project, noCache bool, stdout, stderr io.Writer
 	fmt.Fprintln(stdout, "\n📤 Uploading docker-compose.yml...")
 	if err := client.UploadFile(tmpFile, remoteCompose); err != nil {
 		return err
+	}
+
+	if partial {
+		fmt.Fprintln(stdout, "✅ Partial sync complete (upload only)!")
+		return nil
 	}
 
 	// Build and start services

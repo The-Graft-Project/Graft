@@ -141,6 +141,7 @@ Deploy all services to the server.
 ```bash
 graft sync                    # Deploy all services
 graft sync --no-cache         # Force fresh build (clears cache)
+graft sync -p                 # Partial sync (upload only, no build)
 ```
 
 **What it does:**
@@ -149,12 +150,13 @@ graft sync --no-cache         # Force fresh build (clears cache)
 3. Uploads source code for `serverbuild` services
 4. Injects secrets from `.graft/secrets.env`
 5. Uploads `docker-compose.yml`
-6. Builds and starts all services
-7. Cleans up old images
+6. Builds and starts all services (skipped if -p is used)
+7. Cleans up old images (skipped if -p is used)
 
 **Modes:**
 - **Normal:** Uses Docker cache for faster builds
 - **--no-cache:** Clears build cache and forces fresh build
+- **-p, --partial:** Partial sync. Performs uploads but skips the build and start steps on the server. Useful for stage-building or manual verification.
 
 ---
 
@@ -165,15 +167,16 @@ Deploy a specific service only.
 graft sync backend            # Deploy only backend
 graft sync frontend           # Deploy only frontend
 graft sync backend --no-cache # Force fresh build
+graft sync backend -p         # Upload code for backend ONLY (no build)
 ```
 
 **What it does:**
 1. Updates project metadata
-2. Stops and removes old container
+2. Stops and removes old container (skipped if -p is used)
 3. Uploads source code for that service
-4. Rebuilds only that service
-5. Starts the updated container
-6. Cleans up old images
+4. Rebuilds only that service (skipped if -p is used)
+5. Starts the updated container (skipped if -p is used)
+6. Cleans up old images (skipped if -p is used)
 
 **Benefits:**
 - ✅ Much faster than full sync
@@ -186,12 +189,13 @@ graft sync backend --no-cache # Force fresh build
 Update only the docker-compose.yml without rebuilding images.
 
 ```bash
-graft sync compose
+graft sync compose              # Update and restart
+graft sync compose -p           # Upload only (no restart)
 ```
 
 **What it does:**
 1. Uploads updated `graft-compose.yml`
-2. Restarts services with new configuration
+2. Restarts services with new configuration (skipped if -p is used)
 3. Skips image building
 
 **Use for quick changes to:**
@@ -503,8 +507,8 @@ graft exec backend sh
 - `graft init` - Initialize project
 - `graft db <name> init` - Create database
 - `graft redis <name> init` - Create Redis instance
-- `graft sync [service] [--no-cache]` - Deploy
-- `graft sync compose` - Update compose only
+- `graft sync [service] [--no-cache] [-p]` - Deploy
+- `graft sync compose [-p]` - Update compose only
 - `graft logs <service>` - Stream logs
 
 ### Passthrough Commands (via docker compose)

@@ -87,13 +87,13 @@ services:
       # Graft deployment mode: localbuild | serverbuild
       # - localbuild: Build image locally, push to server, run
       # - serverbuild: Copy source to server, build & run there
-      - "graft.mode=localbuild"
+      - "graft.mode=serverbuild"
       
       # Traefik routing - serves all requests to %s/
       - "traefik.enable=true"
       - "traefik.http.routers.%s-frontend.rule=Host(` + "`%s`" + `)"
       - "traefik.http.routers.%s-frontend.priority=1"
-      - "traefik.http.services.%s-frontend.loadbalancer.server.port=3000"
+      - "traefik.http.services.%s-frontend.loadbalancer.server.port=3000" #this is the internal container port that the frontend service is running on
       
       # HTTPS with Let's Encrypt (uncomment to enable)
       # - "traefik.http.routers.%s-frontend.entrypoints=websecure"
@@ -154,14 +154,15 @@ services:
     
     labels:
       # Graft deployment mode
-      - "graft.mode=localbuild"
+      - "graft.mode=serverbuild"
       
       # Traefik routing - serves %s/api/* and strips /api prefix
       - "traefik.enable=true"
       - "traefik.http.routers.%s-backend.rule=Host(` + "`%s`" + `) && PathPrefix(` + "`/api`" + `)"
-      - "traefik.http.middlewares.%s-backend-strip.stripprefix.prefixes=/api"
-      - "traefik.http.routers.%s-backend.middlewares=%s-backend-strip"
-      - "traefik.http.services.%s-backend.loadbalancer.server.port=5000"
+      - "traefik.http.middlewares.%s-backend-strip.stripprefix.prefixes=/api" 
+      - "traefik.http.routers.%s-backend.middlewares=%s-backend-strip" 
+      - "traefik.http.services.%s-backend.loadbalancer.server.port=5000" #this is the internal container port that the backend service is running on
+      
       
       # HTTPS with Let's Encrypt (uncomment to enable)
       # - "traefik.http.routers.%s-backend.entrypoints=websecure"
