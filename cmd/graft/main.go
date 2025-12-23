@@ -27,12 +27,18 @@ func main() {
 	// Handle target registry flag: graft -r registryname ...
 	var registryContext string
 	if args[0] == "-r" || args[0] == "--registry" {
-		if len(args) < 3 {
+		if len(args) < 2 {
 			fmt.Println("Usage: graft -r <registryname> <command>")
 			return
 		}
 		registryContext = args[1]
 		args = args[2:]
+
+		// Handle shell directly after -r: graft -r name -sh ...
+		if len(args) > 0 && (args[0] == "-sh" || args[0] == "--sh") {
+			runRegistryShell(registryContext, args[1:])
+			return
+		}
 	}
 
 	// Handle project context flag: graft -p projectname ...
@@ -66,7 +72,7 @@ func main() {
 		runInit(args[1:])
 	case "host":
 		if len(args) < 2 {
-			fmt.Println("Usage: graft host [init|clean]")
+			fmt.Println("Usage: graft host [init|clean|sh]")
 			return
 		}
 		switch args[1] {
@@ -74,8 +80,10 @@ func main() {
 			runHostInit()
 		case "clean":
 			runHostClean()
+		case "sh", "-sh", "--sh":
+			runHostShell(args[2:])
 		default:
-			fmt.Println("Usage: graft host [init|clean]")
+			fmt.Println("Usage: graft host [init|clean|sh]")
 		}
 	case "db":
 		if len(args) < 3 || args[2] != "init" {
@@ -103,10 +111,23 @@ func main() {
 			runSync(args[1:])
 		}
 	case "registry":
-		if len(args) > 1 && args[1] == "ls" {
+		if len(args) < 2 {
+			fmt.Println("Usage: graft registry [ls|add|del]")
+			return
+		}
+		switch args[1] {
+		case "ls":
 			runRegistryLs()
-		} else {
-			fmt.Println("Usage: graft registry ls")
+		case "add":
+			runRegistryAdd()
+		case "del":
+			if len(args) < 3 {
+				fmt.Println("Usage: graft registry del <name>")
+				return
+			}
+			runRegistryDel(args[2])
+		default:
+			fmt.Println("Usage: graft registry [ls|add|del]")
 		}
 	case "projects":
 		if len(args) > 1 && args[1] == "ls" {
@@ -152,15 +173,15 @@ func printUsage() {
 	fmt.Println("\nFlags:")
 	fmt.Println("  -p, --project <name>      Run command in specific project context")
 	fmt.Println("  -r, --registry <name>     Target a specific server context")
+	fmt.Println("  -sh, --sh [cmd]           Execute shell command on target (or start SSH session)")
 	fmt.Println("\nCommands:")
 	fmt.Println("  init [-f]                 Initialize a new project")
-	fmt.Println("  registry ls               List registered servers")
+	fmt.Println("  registry [ls|add|del]     Manage registered servers")
 	fmt.Println("  projects ls               List local projects")
-	fmt.Println("  -r <name> projects ls     List projects on a remote server")
-	fmt.Println("  -r <name> pull <proj>     Pull project from server to ~/graft/")
-	fmt.Println("  host init/clean           Manage remote server setup")
+	fmt.Println("  pull <project>            Pull/Clone project from remote")
+	fmt.Println("  host [init|clean|sh]      Manage current project's host context")
 	fmt.Println("  db/redis <name> init      Initialize shared infrastructure")
-	fmt.Println("  sync [service]            Deploy project to server")
+	fmt.Println("  sync [service] [-h]       Deploy project to server")
 	fmt.Println("  logs <service>            Stream service logs")
 }
 
@@ -923,4 +944,140 @@ func runPull(registryName, projectName string) {
 
 	fmt.Printf("\n✨ Project '%s' pulled successfully to %s\n", projectName, localBase)
 	fmt.Printf("👉 Use 'graft -p %s <command>' to manage it.\n", projectName)
+}
+
+func runRegistryAdd() {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("\n➕ Add New Server to Global Registry")
+	host, port, user, keyPath := promptNewServer(reader)
+	
+	fmt.Print("Registry Name (e.g. prod-us): ")
+	registryName, _ := reader.ReadString('\n')
+	registryName = strings.TrimSpace(registryName)
+	
+	if registryName == "" {
+		fmt.Println("Error: Registry name cannot be empty.")
+		return
+	}
+
+	gCfg, _ := config.LoadGlobalConfig()
+	if gCfg == nil {
+		gCfg = &config.GlobalConfig{
+			Servers: make(map[string]config.ServerConfig),
+			Projects: make(map[string]string),
+		}
+	}
+	
+	if gCfg.Servers == nil { gCfg.Servers = make(map[string]config.ServerConfig) }
+	
+	gCfg.Servers[registryName] = config.ServerConfig{
+		RegistryName: registryName,
+		Host:         host,
+		Port:         port,
+		User:         user,
+		KeyPath:      keyPath,
+	}
+	
+	if err := config.SaveGlobalConfig(gCfg); err != nil {
+		fmt.Printf("Error saving registry: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ Server '%s' added to registry.\n", registryName)
+}
+
+func runRegistryDel(name string) {
+	gCfg, err := config.LoadGlobalConfig()
+	if err != nil || gCfg == nil {
+		fmt.Println("Error: Could not load global registry.")
+		return
+	}
+	
+	if _, exists := gCfg.Servers[name]; !exists {
+		fmt.Printf("Error: Registry '%s' not found.\n", name)
+		return
+	}
+	
+	fmt.Printf("Are you sure you want to delete registry '%s'? (y/n): ", name)
+	reader := bufio.NewReader(os.Stdin)
+	confirm, _ := reader.ReadString('\n')
+	confirm = strings.ToLower(strings.TrimSpace(confirm))
+	
+	if confirm != "y" && confirm != "yes" {
+		fmt.Println("Delete aborted.")
+		return
+	}
+	
+	delete(gCfg.Servers, name)
+	if err := config.SaveGlobalConfig(gCfg); err != nil {
+		fmt.Printf("Error saving registry: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ Registry '%s' deleted.\n", name)
+}
+
+func runRegistryShell(registryName string, commandArgs []string) {
+	gCfg, _ := config.LoadGlobalConfig()
+	if gCfg == nil {
+		fmt.Println("Error: Could not load global registry.")
+		return
+	}
+	srv, exists := gCfg.Servers[registryName]
+	if !exists {
+		fmt.Printf("Error: Registry '%s' not found.\n", registryName)
+		return
+	}
+
+	client, err := ssh.NewClient(srv.Host, srv.Port, srv.User, srv.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	if len(commandArgs) == 0 {
+		// Interactive SSH
+		fmt.Printf("💻 Starting interactive SSH session on '%s' (%s)...\n", registryName, srv.Host)
+		if err := client.InteractiveSession(); err != nil {
+			fmt.Printf("SSH session error: %v\n", err)
+		}
+	} else {
+		// Non-interactive command
+		cmdStr := strings.Join(commandArgs, " ")
+		fmt.Printf("🚀 Executing on '%s': %s\n", registryName, cmdStr)
+		if err := client.RunCommand(cmdStr, os.Stdout, os.Stderr); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		}
+	}
+}
+
+func runHostShell(commandArgs []string) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Println("Error: No config found.")
+		return
+	}
+
+	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	if len(commandArgs) == 0 {
+		// Interactive SSH
+		fmt.Printf("💻 Starting interactive SSH session on '%s' (%s)...\n", cfg.Server.RegistryName, cfg.Server.Host)
+		if err := client.InteractiveSession(); err != nil {
+			fmt.Printf("SSH session error: %v\n", err)
+		}
+	} else {
+		// Non-interactive command
+		cmdStr := strings.Join(commandArgs, " ")
+		fmt.Printf("🚀 Executing on '%s': %s\n", cfg.Server.RegistryName, cmdStr)
+		if err := client.RunCommand(cmdStr, os.Stdout, os.Stderr); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		}
+	}
 }

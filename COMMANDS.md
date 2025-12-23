@@ -10,55 +10,12 @@ Graft uses a **hybrid command architecture**:
 
 1. **Native Commands** - Handled directly by Graft (init, host, sync, etc.)
 2. **Passthrough Commands** - Any other command is forwarded to `docker compose` on the remote server
-
+3. **How Commands Work** - For a project graft can be used in two ways.
+    - **Current Project Folder(normal graft command)** - Graft will have context for the current project folder and communicate with the host(remote) server.
+    - **Global (with -p flag)** - Graft will find the context for the project and communicate with the host(remote) server.
+    - **Registry (with -r flag)** - Graft will find the registry(host) communicate directly.
 ---
 
-## Global Context Flag
-
-### `-p, --project <name>`
-Run any Graft command for a specific project from **any directory**.
-
-```bash
-graft -p my-project sync -h
-graft -p my-project ps
-graft -p my-project logs backend
-```
-
-**How it works:**
-- Graft looks for the project name in the global registry (`~/.graft/registry.json`).
-- If found, it automatically changes the working directory to the project's absolute path.
-- The command is then executed as if you were inside that directory.
-- This works for both native and passthrough commands.
-
-### `-r, --registry <name>`
-Target a specific server context from your global registry.
-
-```bash
-graft -r prod-us projects ls
-graft -r prod-us pull my-project
-```
-
----
-
-## 📂 Project & Registry Management
-
-### `graft registry ls`
-List all servers stored in your global registry (`~/.graft/registry.json`).
-
-### `graft projects ls`
-List all projects registered on your local system, including their bound server names and local paths.
-
-### `graft -r <name> projects ls`
-List all projects currently registered on the target remote server.
-
-### `graft -r <name> pull <project>`
-Download an existing project from a remote server to your local machine.
-- Creates a new directory at `~/graft/<project>`.
-- Syncs all project files using `rsync`.
-- Automatically initializes the local `.graft/` configuration.
-- Registers the project in your local global registry for immediate use with `-p`.
-
----
 
 ## Project Commands
 
@@ -398,6 +355,87 @@ graft up --scale backend=3            # Run 3 backend instances
 
 ---
 
+## 📂 Project & Registry Management
+
+### `graft registry ls`
+List all servers stored in your global registry (`~/.graft/registry.json`).
+
+### `graft registry add`
+Interactively add a new server to your global registry without initializing a project.
+
+### `graft registry <name> del`
+Remove a server from your global registry.
+
+### `graft projects ls`
+List all projects registered on your local system, including their bound server names and local paths.
+
+### `graft -r <name> projects ls`
+List all projects currently registered on the target remote server.
+
+### `graft -r <name> pull <project>`
+Download an existing project from a remote server to your local machine.
+- Creates a new directory at `~/graft/<project>`.
+- Syncs all project files using `rsync`.
+- Automatically initializes the local `.graft/` configuration.
+- Registers the project in your local global registry for immediate use with `-p`.
+
+---
+
+## Global Context Flag
+
+### `-p, --project <name>`
+Run any Graft command for a specific project from **any directory**.
+
+```bash
+graft -p my-project sync -h
+graft -p my-project ps
+graft -p my-project logs backend
+```
+
+**How it works:**
+- Graft looks for the project name in the global registry (`~/.graft/registry.json`).
+- If found, it automatically changes the working directory to the project's absolute path.
+- The command is then executed as if you were inside that directory.
+- This works for both native and passthrough commands.
+
+```bash
+graft -r prod-us projects ls
+graft -r prod-us pull my-project
+graft -r prod-us -sh uname -a
+graft -r prod-us -sh
+```
+
+### `-sh, --sh [command]`
+Execute a shell command on the target or start an interactive SSH session.
+- If a command is provided, it executes non-interactively.
+- If no command is provided, it starts an **interactive SSH session** (TTY).
+- Works with both `-r <registry>` and `-p <project>` flags.
+
+---
+
+
+## 💻 Shell & SSH Access
+
+### `graft -sh`
+Open an interactive SSH session to the server in the current project context.
+
+### `graft -sh <command>`
+Execute a single command on the remote server.
+
+### `graft host sh [command]`
+Alias for shell access to the current project's host.
+- `graft host sh` - Interactive session.
+- `graft host sh df -h` - Execute command.
+
+### `graft -r <srv> -sh`
+Open an interactive SSH session to a specific server from the registry.
+
+### `graft -p <proj> host sh`
+Open an interactive SSH session to a specific project's host.
+
+---
+
+
 ## Common Workflows
 
 ### Development Workflow
@@ -601,11 +639,12 @@ graft exec backend sh
 
 ### Native Graft Commands
 - `graft init [-f]` - Initialize project (configures server & project)
-- `graft registry ls` - List registered servers
+- `graft registry [ls|add|del]` - Manage registered servers
 - `graft projects ls` - List local projects
-- `graft -r <srv> projects ls` - List projects on remote server
-- `graft -r <srv> pull <proj>` - Pull/Clone remote project locally
-- `graft host init/clean` - Manage server context
+- `graft -p <name> host [sh]` - Project-bound shell access
+- `graft -r <srv> [projects ls|pull|-sh]` - Server-context commands
+- `graft -sh [cmd]` - Execute directly on target server
+- `graft host init/clean/sh` - Manage current server context
 - `graft db <name> init` - Create database
 - `graft redis <name> init` - Create Redis instance
 - `graft sync [service] [-h] [--git] [--branch <name>] [--commit <hash>]` - Deploy

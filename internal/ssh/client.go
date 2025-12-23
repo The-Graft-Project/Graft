@@ -12,6 +12,7 @@ import (
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/term"
 )
 
 type Client struct {
@@ -75,6 +76,42 @@ func (c *Client) RunCommand(cmd string, stdout, stderr io.Writer) error {
 	session.Stdout = stdout
 	session.Stderr = stderr
 	return session.Run(cmd)
+}
+
+func (c *Client) InteractiveSession() error {
+	session, err := c.client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	modes := ssh.TerminalModes{
+		ssh.ECHO: 1, // enable echoing
+	}
+
+	// Request pseudo terminal
+	if err := session.RequestPty("xterm-256color", 80, 40, modes); err != nil {
+		return fmt.Errorf("request for pseudo terminal failed: %s", err)
+	}
+
+	session.Stdin = os.Stdin
+	session.Stdout = os.Stdout
+	session.Stderr = os.Stderr
+
+	// Put local terminal into raw mode
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		return fmt.Errorf("failed to set raw mode: %s", err)
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	// Start shell on remote
+	if err := session.Shell(); err != nil {
+		return fmt.Errorf("failed to start shell: %s", err)
+	}
+
+	// Wait for session to finish
+	return session.Wait()
 }
 
 func (c *Client) UploadFile(local, remote string) error {
