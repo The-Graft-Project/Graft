@@ -46,13 +46,11 @@ curl -sSL https://raw.githubusercontent.com/skssmd/Graft/main/bin/install.sh | s
 ### Quick Installation (Windows)
 Download the binary via PowerShell:
 ```powershell
-wget -OutFile graft.exe https://github.com/skssmd/Graft/releases/download/v1.0.0-linux/graft
+wget install graft
 ```
 
 ### Prerequisites
 - **Go**: Version 1.24+ recommended.
-- **Rsync**: Required for fast file synchronization.
-- **SSH**: Access to your target Linux server with key-based authentication.
 
 ### Building from Source
 1. Clone this repository.
