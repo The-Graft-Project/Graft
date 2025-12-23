@@ -8,7 +8,11 @@
 
 # Graft 🚀
 
-**Graft** is a powerful, interactive CLI tool designed to simplify the deployment and management of Docker-based projects on remote Linux servers. It bridges the gap between local development and remote production by providing a seamless synchronization and management experience.
+**Graft** is a lightweight, no-overhead deployment tool that simplifies deployment abstractness. Built directly on top of Docker Compose, its purpose is to provide a native experience for handling cloud servers without managed extra steps.
+
+If you know and have worked with Docker Compose for local development services (what you run on localhost), you already know 90% of Graft. You can stay in your IDE or terminal and manage your web application exactly as you do on localhost, but you'll be managing your remote server.
+
+There's no catch: no extra installs, no management agents, and no additional containers on your server. All you need is Docker and SSH. Graft can manage AWS EC2, Google Cloud VPS, Regular VPSs, and any Linux host you have access to.
 
 ## ✨ Key Features
 
