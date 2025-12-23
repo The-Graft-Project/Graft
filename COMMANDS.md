@@ -39,11 +39,14 @@ Initialize a new Graft project in the current directory and Configure server con
 
 
 ```bash
-graft init
+graft init [-f, --force]
 ```
 
 **Interactive Setup:**
 1. **Server Selection**: Select an existing server from your global registry or type `/new`.
+2. **Conflict Check**: Graft checks for existing projects with the same name:
+   - **Locally**: If found in your global registry, it prompts you with the existing path/host and asks for confirmation (y/n).
+   - **Remotely**: It checks the server registry. If found, it will abort unless `-f` or `--force` is used.
 2. **Host Configuration** (if new): Enter IP, port, user, and key path.
 3. **Registry Name** (if new): Provide a unique name to save the server globally.
 4. **Project Name**: Name of your project (normalized to lowercase/underscores).

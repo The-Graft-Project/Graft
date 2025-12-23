@@ -10,6 +10,7 @@ import (
 )
 
 const RemoteInfraPath = "/opt/graft/infra/.config"
+const RemoteProjectsPath = "/opt/graft/config/projects.json"
 
 type ServerConfig struct {
 	RegistryName string `json:"registry_name,omitempty"`

@@ -52,7 +52,7 @@ func main() {
 
 	switch command {
 	case "init":
-		runInit()
+		runInit(args[1:])
 	case "host":
 		if len(args) < 2 {
 			fmt.Println("Usage: graft host [init|clean]")
@@ -104,7 +104,7 @@ func printUsage() {
 	fmt.Println("\nFlags:")
 	fmt.Println("  -p, --project <name>     Run command in specific project context")
 	fmt.Println("\nCommands:")
-	fmt.Println("  init                     Initialize local project")
+	fmt.Println("  init [-f]     Initialize a new project (use -f to force overwrite remote registration)")
 	fmt.Println("  host init                Setup remote server")
 	fmt.Println("  host clean               Clean Docker caches")
 	fmt.Println("  db <name> init           Deploy Postgres instance")
@@ -113,22 +113,33 @@ func printUsage() {
 	fmt.Println("  logs <service>           Stream service logs")
 }
 
-// Helper to load only global config (not local)
-func loadGlobalConfig() (*config.GraftConfig, error) {
-	globalPath := config.GetGlobalConfigPath()
-	data, err := os.ReadFile(globalPath)
-	if err != nil {
-		return nil, err
-	}
-	var cfg config.GraftConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
 
-func runInit() {
+func runInit(args []string) {
 	reader := bufio.NewReader(os.Stdin)
+
+	// Parse flags
+	var force bool
+	for _, arg := range args {
+		if arg == "-f" || arg == "--force" {
+			force = true
+		}
+	}
+
+	// Directory Check
+	configPath := filepath.Join(".graft", "config.json")
+	projectPath := filepath.Join(".graft", "project.json")
+	if _, err := os.Stat(configPath); err == nil {
+		if _, err := os.Stat(projectPath); err == nil {
+			fmt.Print("\n⚠️  This directory is already initialized with Graft. Do you want to proceed? (y/n): ")
+			input, _ := reader.ReadString('\n')
+			input = strings.ToLower(strings.TrimSpace(input))
+			if input != "y" && input != "yes" {
+				fmt.Println("❌ Init aborted.")
+				return
+			}
+			fmt.Println("✅ Proceeding with re-initialization...")
+		}
+	}
 
 	// Load global registry
 	gCfg, _ := config.LoadGlobalConfig()
@@ -182,6 +193,21 @@ func runInit() {
 		registryName = strings.TrimSpace(registryName)
 	}
 
+	// Update global registry with the selected/new server immediately
+	if gCfg != nil {
+		if gCfg.Servers == nil {
+			gCfg.Servers = make(map[string]config.ServerConfig)
+		}
+		gCfg.Servers[registryName] = config.ServerConfig{
+			RegistryName: registryName,
+			Host:         host,
+			Port:         port,
+			User:         user,
+			KeyPath:      keyPath,
+		}
+		config.SaveGlobalConfig(gCfg)
+	}
+
 	var projName string
 	for {
 		fmt.Print("Project Name: ")
@@ -202,6 +228,76 @@ func runInit() {
 		fmt.Println("❌ Invalid project name. Use only letters, numbers, and underscores.")
 	}
 
+	// Local Conflict Check
+	if gCfg != nil && gCfg.Projects != nil {
+		if existingLocalPath, exists := gCfg.Projects[projName]; exists && !force {
+			fmt.Printf("\n⚠️  Project '%s' already exists in your local registry:\n", projName)
+			fmt.Printf("   Path: %s\n", existingLocalPath)
+			
+			// Try to get host info from existing local path
+			localCfgPath := filepath.Join(existingLocalPath, ".graft", "config.json")
+			if data, err := os.ReadFile(localCfgPath); err == nil {
+				var exCfg config.GraftConfig
+				if err := json.Unmarshal(data, &exCfg); err == nil {
+					fmt.Printf("   Target Host: %s (%s)\n", exCfg.Server.RegistryName, exCfg.Server.Host)
+				}
+			}
+			
+			fmt.Print("\nDo you want to overwrite this local registration? (y/n): ")
+			confirm, _ := reader.ReadString('\n')
+			confirm = strings.ToLower(strings.TrimSpace(confirm))
+			if confirm != "y" && confirm != "yes" {
+				fmt.Println("❌ Init aborted.")
+				return
+			}
+			fmt.Println("✅ Local overwrite confirmed.")
+		}
+	}
+
+	// Remote Conflict Check
+	fmt.Printf("🔍 Checking for conflicts on remote server '%s'...\n", host)
+	client, err := ssh.NewClient(host, port, user, keyPath)
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Could not connect to host to check for conflicts: %v\n", err)
+	} else {
+		defer client.Close()
+		
+		// Ensure config dir exists
+		client.RunCommand("sudo mkdir -p /opt/graft/config && sudo chown $USER:$USER /opt/graft/config", os.Stdout, os.Stderr)
+
+		tmpFile := filepath.Join(os.TempDir(), "remote_projects.json")
+		var remoteProjects map[string]string // Name -> Path
+		
+		if err := client.DownloadFile(config.RemoteProjectsPath, tmpFile); err == nil {
+			data, _ := os.ReadFile(tmpFile)
+			json.Unmarshal(data, &remoteProjects)
+			os.Remove(tmpFile)
+		}
+		
+		if remoteProjects == nil {
+			remoteProjects = make(map[string]string)
+		}
+
+		if existingPath, exists := remoteProjects[projName]; exists && !force {
+			fmt.Printf("❌ Conflict: Project '%s' already exists on this server at '%s'.\n", projName, existingPath)
+			fmt.Println("👉 Use 'graft init -f' or '--force' to overwrite this registration.")
+			return
+		}
+
+		// Update remote registry (local record for now, will upload after boilerplate generation)
+		remoteProjects[projName] = fmt.Sprintf("/opt/graft/projects/%s", projName)
+		
+		// Pre-cache the remote project list for upload later
+		defer func() {
+			data, _ := json.MarshalIndent(remoteProjects, "", "  ")
+			tmpPath := filepath.Join(os.TempDir(), "upload_projects.json")
+			os.WriteFile(tmpPath, data, 0644)
+			client.UploadFile(tmpPath, config.RemoteProjectsPath)
+			os.Remove(tmpPath)
+			fmt.Println("✅ Remote project registry updated")
+		}()
+	}
+
 	fmt.Print("Domain (e.g. app.example.com): ")
 	domain, _ := reader.ReadString('\n')
 	domain = strings.TrimSpace(domain)
@@ -215,15 +311,6 @@ func runInit() {
 	}
 	config.SaveConfig(cfg, true) // local
 
-	// Update global registry if new
-	if gCfg == nil {
-		gCfg, _ = config.LoadGlobalConfig()
-	}
-	if gCfg != nil {
-		if gCfg.Servers == nil { gCfg.Servers = make(map[string]config.ServerConfig) }
-		gCfg.Servers[registryName] = cfg.Server
-		config.SaveGlobalConfig(gCfg)
-	}
 
 	// Generate boilerplate
 	p := deploy.GenerateBoilerplate(projName, domain)
@@ -384,6 +471,11 @@ func runInfraInit(typ, name string) {
 		url, err = infra.InitPostgres(client, name, cfg, os.Stdout, os.Stderr)
 	} else {
 		url, err = infra.InitRedis(client, name, os.Stdout, os.Stderr)
+	}
+
+	if err != nil {
+		fmt.Printf("Error initializing %s: %v\n", typ, err)
+		return
 	}
 
 	secretKey := fmt.Sprintf("GRAFT_%s_%s_URL", strings.ToUpper(typ), strings.ToUpper(name))
