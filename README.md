@@ -37,6 +37,18 @@ When you run `graft init`, the tool provides a **template compose file** featuri
 
 ## 🛠️ Installation & Build
 
+### Quick Installation (Linux)
+Install Graft globally with a single command:
+```bash
+curl -sSL https://raw.githubusercontent.com/skssmd/Graft/main/bin/install.sh | sh
+```
+
+### Quick Installation (Windows)
+Download the binary via PowerShell:
+```powershell
+wget -OutFile graft.exe https://github.com/skssmd/Graft/releases/download/v1.0.0-linux/graft
+```
+
 ### Prerequisites
 - **Go**: Version 1.24+ recommended.
 - **Rsync**: Required for fast file synchronization.
