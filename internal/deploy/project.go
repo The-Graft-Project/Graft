@@ -51,8 +51,6 @@ func (p *Project) Save(dir string) error {
 
 version: '3.8'
 
-name: %s
-domain: %s
 
 services:
   # Frontend Service (React/Vue/Angular/etc)

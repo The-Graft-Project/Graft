@@ -25,7 +25,21 @@ type Client struct {
 }
 
 func NewClient(host string, port int, user, keyPath string) (*Client, error) {
-	key, err := os.ReadFile(keyPath)
+	// Expand tilde (~) if present in keyPath
+	actualKeyPath := keyPath
+	if strings.HasPrefix(keyPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			actualKeyPath = filepath.Join(home, keyPath[2:])
+		}
+	} else if keyPath == "~" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			actualKeyPath = home
+		}
+	}
+
+	key, err := os.ReadFile(actualKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read private key: %v", err)
 	}

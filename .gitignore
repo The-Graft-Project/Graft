@@ -1,5 +1,5 @@
 *.exe
-graft
+./graft
 # Added by goreleaser init:
 dist/
 .goreleaser.yaml

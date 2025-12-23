@@ -442,10 +442,26 @@ func runHostInit() {
 	confirmPG = strings.ToLower(strings.TrimSpace(confirmPG))
 	setupPostgres := confirmPG == "y" || confirmPG == "yes"
 
+	var exposePostgres bool
+	if setupPostgres {
+		fmt.Print("  Expose Postgres port (5432) to the internet? (y/n): ")
+		input, _ := reader.ReadString('\n')
+		input = strings.ToLower(strings.TrimSpace(input))
+		exposePostgres = input == "y" || input == "yes"
+	}
+
 	fmt.Print("Setup shared Redis instance? (y/n): ")
 	confirmRedis, _ := reader.ReadString('\n')
 	confirmRedis = strings.ToLower(strings.TrimSpace(confirmRedis))
 	setupRedis := confirmRedis == "y" || confirmRedis == "yes"
+
+	var exposeRedis bool
+	if setupRedis {
+		fmt.Print("  Expose Redis port (6379) to the internet? (y/n): ")
+		input, _ := reader.ReadString('\n')
+		input = strings.ToLower(strings.TrimSpace(input))
+		exposeRedis = input == "y" || input == "yes"
+	}
 
 	// Secure credentials for infrastructure
 	if setupPostgres && cfg.Infra.PostgresPassword == "" {
@@ -470,7 +486,7 @@ func runHostInit() {
 		}
 	}
 
-	err = hostinit.InitHost(client, setupPostgres, setupRedis, 
+	err = hostinit.InitHost(client, setupPostgres, setupRedis, exposePostgres, exposeRedis,
 		cfg.Infra.PostgresUser, cfg.Infra.PostgresPassword, cfg.Infra.PostgresDB, 
 		os.Stdout, os.Stderr)
 	if err != nil {

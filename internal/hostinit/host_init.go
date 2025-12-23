@@ -11,7 +11,7 @@ import (
 	"github.com/skssmd/graft/internal/ssh"
 )
 
-func InitHost(client *ssh.Client, setupPostgres, setupRedis bool, pgUser, pgPass, pgDB string, stdout, stderr io.Writer) error {
+func InitHost(client *ssh.Client, setupPostgres, setupRedis, exposePostgres, exposeRedis bool, pgUser, pgPass, pgDB string, stdout, stderr io.Writer) error {
 	// Detect OS and set appropriate package manager commands
 	var dockerInstallCmd, composeInstallCmd string
 	
@@ -21,23 +21,23 @@ func InitHost(client *ssh.Client, setupPostgres, setupRedis bool, pgUser, pgPass
 		dockerInstallCmd = "sudo yum update -y && sudo yum install -y docker && sudo systemctl start docker && sudo systemctl enable docker && sudo usermod -aG docker $USER"
 		// Install Docker Compose v2 plugin and buildx
 		composeInstallCmd = `sudo mkdir -p /usr/local/lib/docker/cli-plugins && \
-sudo curl -SL https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
+sudo curl -SL https://github.com/docker/compose/releases/download/v5.0.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && \
-sudo curl -SL https://github.com/docker/buildx/releases/download/v0.12.1/buildx-v0.12.1.linux-amd64 -o /usr/local/lib/docker/cli-plugins/docker-buildx && \
+sudo curl -SL https://github.com/docker/buildx/releases/download/v0.30.1/buildx-v0.30.1.linux-amd64 -o /usr/local/lib/docker/cli-plugins/docker-buildx && \
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx`
 	} else if err := client.RunCommand("cat /etc/os-release | grep -i 'ubuntu\\|debian'", nil, nil); err == nil {
 		fmt.Fprintln(stdout, "🔍 Detected: Ubuntu/Debian")
 		dockerInstallCmd = "curl -fsSL https://get.docker.com | sudo sh && sudo systemctl start docker && sudo systemctl enable docker && sudo usermod -aG docker $USER"
 		composeInstallCmd = `sudo mkdir -p /usr/local/lib/docker/cli-plugins && \
-sudo curl -SL https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
+sudo curl -SL https://github.com/docker/compose/releases/download/v5.0.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose`
 	} else {
 		fmt.Fprintln(stdout, "🔍 Detected: Generic Linux (using Docker install script)")
 		dockerInstallCmd = "curl -fsSL https://get.docker.com | sudo sh && sudo systemctl start docker && sudo systemctl enable docker && sudo usermod -aG docker $USER"
 		composeInstallCmd = `sudo mkdir -p /usr/local/lib/docker/cli-plugins && \
-sudo curl -SL https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
+sudo curl -SL https://github.com/docker/compose/releases/download/v5.0.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && \
-sudo curl -SL https://github.com/docker/buildx/releases/download/v0.12.1/buildx-v0.12.1.linux-amd64 -o /usr/local/lib/docker/cli-plugins/docker-buildx && \
+sudo curl -SL https://github.com/docker/buildx/releases/download/v0.30.1/buildx-v0.30.1.linux-amd64 -o /usr/local/lib/docker/cli-plugins/docker-buildx && \
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx`
 	}
 
@@ -79,7 +79,7 @@ version: '3.8'
 services:
   traefik:
     container_name: graft-traefik
-    image: traefik:v2.10
+    image: traefik:v3.6
     command:
       # API and Dashboard
       - "--api.insecure=true"
@@ -147,24 +147,36 @@ sudo docker compose -f /opt/graft/gateway/docker-compose.yml up -d`,
 		
 		var services string
 		if setupPostgres {
+			ports := ""
+			if exposePostgres {
+				ports = `    ports:
+      - "5432:5432"
+`
+			}
 			services += fmt.Sprintf(`  postgres:
     container_name: graft-postgres
-    image: postgres:alpine
-    environment:
+    image: postgres:18.1-alpine
+%s    environment:
       POSTGRES_USER: %s
       POSTGRES_PASSWORD: %s
       POSTGRES_DB: %s
     networks:
       - graft-public
-`, pgUser, pgPass, pgDB)
+`, ports, pgUser, pgPass, pgDB)
 		}
 		if setupRedis {
-			services += `  redis:
+			ports := ""
+			if exposeRedis {
+				ports = `    ports:
+      - "6379:6379"
+`
+			}
+			services += fmt.Sprintf(`  redis:
     container_name: graft-redis
     image: redis:alpine
-    networks:
+%s    networks:
       - graft-public
-`
+`, ports)
 		}
 
 		infraCmd := fmt.Sprintf(`sudo tee /opt/graft/infra/docker-compose.yml <<EOF

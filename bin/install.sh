@@ -36,25 +36,38 @@ if [ "$OS" != "linux" ]; then
     exit 1
 fi
 
-# Determine download URL (using GitHub Releases as a standard target)
-# NOTE: Replace this with your actual binary hosting URL if different
-DOWNLOAD_URL="https://github.com/$REPO/releases/download/v1.0.0-linux/graft"
+# Determine latest version if not provided
+if [ -z "$VERSION" ]; then
+    printf "${BLUE}🔍 Fetching latest version...${NC}\n"
+    VERSION=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -z "$VERSION" ]; then
+        printf "${RED}Error: Could not detect latest version.${NC}\n"
+        exit 1
+    fi
+fi
 
-printf "${BLUE}🔍 Detected $OS ($ARCH). Fetching binary...${NC}\n"
+# Determine download URL
+# OS name needs to be capitalized for GoReleaser (Linux)
+CAP_OS="Linux"
+ARCHIVE_NAME="Graft_${VERSION#v}_${CAP_OS}_${ARCH}.tar.gz"
+DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/$ARCHIVE_NAME"
 
-# Download the binary
+printf "${BLUE}🔍 Detected $OS ($ARCH), Version $VERSION. Fetching $ARCHIVE_NAME...${NC}\n"
+
+# Download and extract the binary
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 if command -v curl >/dev/null 2>&1; then
-    curl -L "$DOWNLOAD_URL" -o "$TMP_DIR/$BINARY_NAME"
+    curl -L "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE_NAME"
 elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$TMP_DIR/$BINARY_NAME" "$DOWNLOAD_URL"
+    wget -qO "$TMP_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL"
 else
-    printf "${RED}Error: curl or wget is required to download Graft.${NC}\n"
+    printf "${RED}Error: curl or wget is required.${NC}\n"
     exit 1
 fi
 
+tar -xzf "$TMP_DIR/$ARCHIVE_NAME" -C "$TMP_DIR"
 chmod +x "$TMP_DIR/$BINARY_NAME"
 
 # Install to global path
@@ -67,5 +80,5 @@ else
     sudo mv "$TMP_DIR/$BINARY_NAME" "$INSTALL_PATH/$BINARY_NAME"
 fi
 
-printf "${GREEN}✨ Graft installed successfully!${NC}\n"
+printf "${GREEN}✨ Graft $VERSION installed successfully!${NC}\n"
 printf "Run ${BLUE}graft --help${NC} to get started.\n"
