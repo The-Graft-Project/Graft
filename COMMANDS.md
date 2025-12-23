@@ -30,6 +30,34 @@ graft -p my-project logs backend
 - The command is then executed as if you were inside that directory.
 - This works for both native and passthrough commands.
 
+### `-r, --registry <name>`
+Target a specific server context from your global registry.
+
+```bash
+graft -r prod-us projects ls
+graft -r prod-us pull my-project
+```
+
+---
+
+## 📂 Project & Registry Management
+
+### `graft registry ls`
+List all servers stored in your global registry (`~/.graft/registry.json`).
+
+### `graft projects ls`
+List all projects registered on your local system, including their bound server names and local paths.
+
+### `graft -r <name> projects ls`
+List all projects currently registered on the target remote server.
+
+### `graft -r <name> pull <project>`
+Download an existing project from a remote server to your local machine.
+- Creates a new directory at `~/graft/<project>`.
+- Syncs all project files using `rsync`.
+- Automatically initializes the local `.graft/` configuration.
+- Registers the project in your local global registry for immediate use with `-p`.
+
 ---
 
 ## Project Commands
@@ -545,28 +573,25 @@ Use `graft sync compose` for:
 ## Quick Start
 
 ```bash
-# 1. Configure server connection
-graft config
+# 1. Configure server connection and Initialize project
+graft init
 
 # 2. Initialize server
 graft host init
 
-# 3. Initialize project
-graft init
-
-# 4. Setup database (optional)
+# 3. Setup database (optional)
 graft db mydb init
 
-# 5. Deploy
+# 4. Deploy
 graft sync
 
-# 6. Check status
+# 5. Check status
 graft ps
 
-# 7. View logs
+# 6. View logs
 graft logs backend
 
-# 8. Debug if needed
+# 7. Debug if needed
 graft exec backend sh
 ```
 
@@ -575,12 +600,15 @@ graft exec backend sh
 ## Command Summary
 
 ### Native Graft Commands
-- `graft config` - Configure server
-- `graft host init/clean` - Manage server
-- `graft init` - Initialize project
+- `graft init [-f]` - Initialize project (configures server & project)
+- `graft registry ls` - List registered servers
+- `graft projects ls` - List local projects
+- `graft -r <srv> projects ls` - List projects on remote server
+- `graft -r <srv> pull <proj>` - Pull/Clone remote project locally
+- `graft host init/clean` - Manage server context
 - `graft db <name> init` - Create database
 - `graft redis <name> init` - Create Redis instance
-- `graft sync [service] [--no-cache] [-h] [--git] [--branch <name>] [--commit <hash>]` - Deploy
+- `graft sync [service] [-h] [--git] [--branch <name>] [--commit <hash>]` - Deploy
 - `graft sync compose [-h]` - Update compose only
 - `graft logs <service>` - Stream logs
 

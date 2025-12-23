@@ -24,6 +24,17 @@ func main() {
 
 	args := os.Args[1:]
 
+	// Handle target registry flag: graft -r registryname ...
+	var registryContext string
+	if args[0] == "-r" || args[0] == "--registry" {
+		if len(args) < 3 {
+			fmt.Println("Usage: graft -r <registryname> <command>")
+			return
+		}
+		registryContext = args[1]
+		args = args[2:]
+	}
+
 	// Handle project context flag: graft -p projectname ...
 	if args[0] == "-p" || args[0] == "--project" {
 		if len(args) < 3 {
@@ -91,7 +102,44 @@ func main() {
 		} else {
 			runSync(args[1:])
 		}
+	case "registry":
+		if len(args) > 1 && args[1] == "ls" {
+			runRegistryLs()
+		} else {
+			fmt.Println("Usage: graft registry ls")
+		}
+	case "projects":
+		if len(args) > 1 && args[1] == "ls" {
+			runProjectsLs(registryContext)
+		} else {
+			fmt.Println("Usage: graft projects ls")
+		}
+	case "pull":
+		if registryContext == "" {
+			fmt.Println("Error: Pulling requires a registry context. Use 'graft -r <registry> pull <project>'")
+			return
+		}
+		if len(args) < 2 {
+			fmt.Println("Usage: graft -r <registry> pull <project>")
+			return
+		}
+		runPull(registryContext, args[1])
 	default:
+		// Handle the --pull flag as requested in the specific format
+		foundPull := false
+		for i, arg := range os.Args {
+			if arg == "--pull" && i+1 < len(os.Args) {
+				if registryContext == "" {
+					fmt.Println("Error: Pulling requires a registry context. Use 'graft -r <registry> --pull <project>'")
+					return
+				}
+				runPull(registryContext, os.Args[i+1])
+				foundPull = true
+				break
+			}
+		}
+		if foundPull { return }
+
 		// Pass through to docker compose for any other command
 		runDockerCompose(args)
 	}
@@ -102,15 +150,18 @@ func printUsage() {
 	fmt.Println("\nUsage:")
 	fmt.Println("  graft [flags] <command> [args]")
 	fmt.Println("\nFlags:")
-	fmt.Println("  -p, --project <name>     Run command in specific project context")
+	fmt.Println("  -p, --project <name>      Run command in specific project context")
+	fmt.Println("  -r, --registry <name>     Target a specific server context")
 	fmt.Println("\nCommands:")
-	fmt.Println("  init [-f]     Initialize a new project (use -f to force overwrite remote registration)")
-	fmt.Println("  host init                Setup remote server")
-	fmt.Println("  host clean               Clean Docker caches")
-	fmt.Println("  db <name> init           Deploy Postgres instance")
-	fmt.Println("  redis <name> init        Deploy Redis instance")
-	fmt.Println("  sync [service]           Deploy project to server")
-	fmt.Println("  logs <service>           Stream service logs")
+	fmt.Println("  init [-f]                 Initialize a new project")
+	fmt.Println("  registry ls               List registered servers")
+	fmt.Println("  projects ls               List local projects")
+	fmt.Println("  -r <name> projects ls     List projects on a remote server")
+	fmt.Println("  -r <name> pull <proj>     Pull project from server to ~/graft/")
+	fmt.Println("  host init/clean           Manage remote server setup")
+	fmt.Println("  db/redis <name> init      Initialize shared infrastructure")
+	fmt.Println("  sync [service]            Deploy project to server")
+	fmt.Println("  logs <service>            Stream service logs")
 }
 
 
@@ -709,4 +760,167 @@ func promptNewServer(reader *bufio.Reader) (string, int, string, string) {
 	keyPath = strings.TrimSpace(keyPath)
 
 	return host, port, user, keyPath
+}
+
+func runRegistryLs() {
+	gCfg, err := config.LoadGlobalConfig()
+	if err != nil || gCfg == nil || len(gCfg.Servers) == 0 {
+		fmt.Println("No servers found in global registry.")
+		return
+	}
+
+	fmt.Println("\n📋 Registered Servers:")
+	fmt.Printf("%-15s %-20s %-10s %-10s\n", "Name", "Host", "User", "Port")
+	fmt.Println(strings.Repeat("-", 60))
+	for name, srv := range gCfg.Servers {
+		fmt.Printf("%-15s %-20s %-10s %-10d\n", name, srv.Host, srv.User, srv.Port)
+	}
+	fmt.Println()
+}
+
+func runProjectsLs(registryName string) {
+	gCfg, err := config.LoadGlobalConfig()
+	if err != nil || gCfg == nil {
+		fmt.Println("Error loading global registry.")
+		return
+	}
+
+	if registryName != "" {
+		// Remote listing
+		srv, exists := gCfg.Servers[registryName]
+		if !exists {
+			fmt.Printf("Error: Registry '%s' not found.\n", registryName)
+			return
+		}
+
+		fmt.Printf("\n🔍 Fetching projects from remote server '%s' (%s)...\n", registryName, srv.Host)
+		client, err := ssh.NewClient(srv.Host, srv.Port, srv.User, srv.KeyPath)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer client.Close()
+
+		tmpFile := filepath.Join(os.TempDir(), "remote_projects_ls.json")
+		if err := client.DownloadFile(config.RemoteProjectsPath, tmpFile); err != nil {
+			fmt.Println("No projects found on remote server or registry file missing.")
+			return
+		}
+		defer os.Remove(tmpFile)
+
+		data, _ := os.ReadFile(tmpFile)
+		var remoteProjects map[string]string // Name -> Path
+		json.Unmarshal(data, &remoteProjects)
+
+		if len(remoteProjects) == 0 {
+			fmt.Println("No projects registered on this server.")
+			return
+		}
+
+		fmt.Printf("\n📂 Remote Projects on '%s':\n", registryName)
+		fmt.Printf("%-20s %-40s\n", "Name", "Remote Path")
+		fmt.Println(strings.Repeat("-", 65))
+		for name, path := range remoteProjects {
+			fmt.Printf("%-20s %-40s\n", name, path)
+		}
+		fmt.Println()
+	} else {
+		// Local listing
+		if len(gCfg.Projects) == 0 {
+			fmt.Println("No local projects found in registry.")
+			return
+		}
+
+		fmt.Println("\n📂 Local Projects:")
+		fmt.Printf("%-20s %-15s %-40s\n", "Name", "Server", "Local Path")
+		fmt.Println(strings.Repeat("-", 80))
+		for name, path := range gCfg.Projects {
+			serverName := "unknown"
+			localCfgPath := filepath.Join(path, ".graft", "config.json")
+			if data, err := os.ReadFile(localCfgPath); err == nil {
+				var lCfg config.GraftConfig
+				if err := json.Unmarshal(data, &lCfg); err == nil {
+					serverName = lCfg.Server.RegistryName
+				}
+			}
+			fmt.Printf("%-20s %-15s %-40s\n", name, serverName, path)
+		}
+		fmt.Println()
+	}
+}
+
+func runPull(registryName, projectName string) {
+	gCfg, err := config.LoadGlobalConfig()
+	if err != nil || gCfg == nil {
+		fmt.Println("Error loading global registry.")
+		return
+	}
+
+	srv, exists := gCfg.Servers[registryName]
+	if !exists {
+		fmt.Printf("Error: Registry '%s' not found.\n", registryName)
+		return
+	}
+
+	fmt.Printf("\n📥 Pulling project '%s' from '%s'...\n", projectName, registryName)
+	client, err := ssh.NewClient(srv.Host, srv.Port, srv.User, srv.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	tmpFile := filepath.Join(os.TempDir(), "remote_projects_pull.json")
+	if err := client.DownloadFile(config.RemoteProjectsPath, tmpFile); err != nil {
+		fmt.Println("Error: Could not retrieve remote project registry.")
+		return
+	}
+	defer os.Remove(tmpFile)
+
+	data, _ := os.ReadFile(tmpFile)
+	var remoteProjects map[string]string
+	json.Unmarshal(data, &remoteProjects)
+
+	remotePath, exists := remoteProjects[projectName]
+	if !exists {
+		fmt.Printf("Error: Project '%s' not found on remote server.\n", projectName)
+		return
+	}
+
+	home, _ := os.UserHomeDir()
+	localBase := filepath.Join(home, "graft", projectName)
+	if err := os.MkdirAll(localBase, 0755); err != nil {
+		fmt.Printf("Error: Could not create local directory: %v\n", err)
+		return
+	}
+
+	fmt.Printf("🚀 Syncing files to %s...\n", localBase)
+	if err := client.PullRsync(remotePath, localBase, os.Stdout, os.Stderr); err != nil {
+		fmt.Printf("Error during pull: %v\n", err)
+		return
+	}
+
+	fmt.Println("🔧 Re-initializing local configuration...")
+	cfg := &config.GraftConfig{
+		Server: srv,
+	}
+	
+	os.MkdirAll(filepath.Join(localBase, ".graft"), 0755)
+	cfgData, _ := json.MarshalIndent(cfg, "", "  ")
+	os.WriteFile(filepath.Join(localBase, ".graft", "config.json"), cfgData, 0644)
+
+	meta := &config.ProjectMetadata{
+		Name: projectName,
+		RemotePath: remotePath,
+	}
+	metaData, _ := json.MarshalIndent(meta, "", "  ")
+	os.WriteFile(filepath.Join(localBase, ".graft", "project.json"), metaData, 0644)
+
+	absPath, _ := filepath.Abs(localBase)
+	if gCfg.Projects == nil { gCfg.Projects = make(map[string]string) }
+	gCfg.Projects[projectName] = absPath
+	config.SaveGlobalConfig(gCfg)
+
+	fmt.Printf("\n✨ Project '%s' pulled successfully to %s\n", projectName, localBase)
+	fmt.Printf("👉 Use 'graft -p %s <command>' to manage it.\n", projectName)
 }

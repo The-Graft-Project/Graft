@@ -241,6 +241,69 @@ func (c *Client) RsyncDirectory(localDir, remoteDir string, stdout, stderr io.Wr
 	return cmd.Run()
 }
 
+// PullRsync syncs a remote directory to a local directory using rsync over SSH
+func (c *Client) PullRsync(remoteDir, localDir string, stdout, stderr io.Writer) error {
+	// Find rsync executable
+	rsyncCmd, err := findRsync()
+	if err != nil {
+		return err
+	}
+	
+	// Build base args
+	args := []string{
+		"-avz",
+	}
+	
+	// Prepare paths based on rsync type
+	sshKeyPath := c.keyPath
+	localPath := localDir
+	
+	// For Git Bash, Cygwin, and WSL, convert Windows paths to Unix format
+	if rsyncCmd != "rsync" {
+		useWSLFormat := (rsyncCmd == "wsl")
+		
+		if useWSLFormat {
+			wslKeyPath := "~/.ssh/graft_key.pem"
+			windowsKeyWSL := convertToUnixPath(c.keyPath, true)
+			
+			copyCmd := exec.Command("wsl", "bash", "-c", 
+				fmt.Sprintf("mkdir -p ~/.ssh && cp '%s' %s && chmod 600 %s", 
+					windowsKeyWSL, wslKeyPath, wslKeyPath))
+			if err := copyCmd.Run(); err != nil {
+				return fmt.Errorf("failed to copy SSH key to WSL: %v", err)
+			}
+			
+			sshKeyPath = wslKeyPath
+			localPath = convertToUnixPath(localDir, true)
+		} else {
+			sshKeyPath = convertToUnixPath(c.keyPath, false)
+			localPath = convertToUnixPath(localDir, false)
+		}
+	}
+	
+	// Add SSH configuration and paths
+	args = append(args,
+		"-e",
+		fmt.Sprintf("ssh -i \"%s\" -p %d -o StrictHostKeyChecking=no", sshKeyPath, c.port),
+		fmt.Sprintf("%s@%s:%s/", c.user, c.host, remoteDir),
+		localPath+"/",
+	)
+	
+	// Execute rsync
+	var cmd *exec.Cmd
+	if rsyncCmd == "wsl" {
+		wslArgs := append([]string{"rsync"}, args...)
+		cmd = exec.Command("wsl", wslArgs...)
+	} else {
+		cmd = exec.Command(rsyncCmd, args...)
+	}
+	
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	
+	return cmd.Run()
+}
+
 // findRsync tries to find rsync executable, checking common Windows locations
 func findRsync() (string, error) {
 	// On Windows, check specific locations first to properly identify the rsync type
