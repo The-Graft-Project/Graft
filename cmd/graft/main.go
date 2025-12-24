@@ -97,6 +97,8 @@ func main() {
 			return
 		}
 		runInfraInit("redis", args[1])
+	case "infra":
+		runInfra(args[1:])
 	case "logs":
 		if len(args) < 2 {
 			fmt.Println("Usage: graft logs <service>")
@@ -180,6 +182,7 @@ func printUsage() {
 	fmt.Println("  projects ls               List local projects")
 	fmt.Println("  pull <project>            Pull/Clone project from remote")
 	fmt.Println("  host [init|clean|sh]      Manage current project's host context")
+	fmt.Println("  infra [db|redis] ports:<v> Change infra port mapping (null to hide)")
 	fmt.Println("  db/redis <name> init      Initialize shared infrastructure")
 	fmt.Println("  sync [service] [-h]       Deploy project to server")
 	fmt.Println("  logs <service>            Stream service logs")
@@ -475,7 +478,9 @@ func runHostInit() {
 				cfg.Infra.PostgresUser = infraCfg.PostgresUser
 				cfg.Infra.PostgresPassword = infraCfg.PostgresPassword
 				cfg.Infra.PostgresDB = infraCfg.PostgresDB
-				fmt.Fprintln(os.Stdout, "✅ Existing credentials found and loaded from remote server")
+				cfg.Infra.PostgresPort = infraCfg.PostgresPort
+				cfg.Infra.RedisPort = infraCfg.RedisPort
+				fmt.Fprintln(os.Stdout, "✅ Existing infrastructure config found and loaded from remote server")
 			}
 			os.Remove(tmpFile)
 		} else {
@@ -1096,4 +1101,68 @@ func runHostShell(commandArgs []string) {
 			fmt.Printf("Error: %v\n", err)
 		}
 	}
+}
+func runInfra(args []string) {
+	if len(args) < 2 {
+		fmt.Println("Usage: graft infra [db|redis] ports:<value>")
+		return
+	}
+
+	typ := args[0]
+	if typ != "db" && typ != "redis" {
+		fmt.Println("Error: First argument must be 'db' or 'redis'")
+		return
+	}
+
+	var portVal string
+	for _, arg := range args[1:] {
+		if strings.HasPrefix(arg, "ports:") {
+			portVal = strings.TrimPrefix(arg, "ports:")
+			break
+		}
+	}
+
+	if portVal == "" {
+		fmt.Println("Usage: graft infra [db|redis] ports:<value> (use 'ports:null' to hide)")
+		return
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Println("Error: No config found.")
+		return
+	}
+
+	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	// Update port in config
+	if typ == "db" {
+		cfg.Infra.PostgresPort = portVal
+	} else {
+		cfg.Infra.RedisPort = portVal
+	}
+
+	// Re-run infra setup
+	fmt.Printf("🔄 Updating %s port to: %s\n", typ, portVal)
+	
+	setupPG := cfg.Infra.PostgresUser != ""
+	setupRedis := true // Assume redis exists if we are here, or based on previous host init
+	
+	// We need to know if redis was setup. Usually both are.
+	// For now, assume both if they have been initialized.
+	
+	err = hostinit.SetupInfra(client, setupPG, setupRedis, cfg.Infra, os.Stdout, os.Stderr)
+	if err != nil {
+		fmt.Printf("Error updating infrastructure: %v\n", err)
+		return
+	}
+
+	// Save updated config locally
+	config.SaveConfig(cfg, true)
+	fmt.Println("\n✅ Infrastructure updated successfully!")
 }

@@ -104,7 +104,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "8080:8080"  # Traefik dashboard
+      # - "8080:8080"  # Traefik dashboard
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "/opt/graft/gateway/letsencrypt:/letsencrypt"
@@ -145,15 +145,43 @@ sudo docker compose -f /opt/graft/gateway/docker-compose.yml up -d`,
 	if setupPostgres || setupRedis {
 		fmt.Fprintf(stdout, "\n🔧 Setup Shared Infra\n")
 		
-		var services string
-		if setupPostgres {
-			ports := ""
-			if exposePostgres {
-				ports = `    ports:
-      - "5432:5432"
-`
-			}
-			services += fmt.Sprintf(`  postgres:
+		pgPort := ""
+		if exposePostgres {
+			pgPort = "5432"
+		}
+		redisPort := ""
+		if exposeRedis {
+			redisPort = "6379"
+		}
+
+		infraCfg := config.InfraConfig{
+			PostgresUser:     pgUser,
+			PostgresPassword: pgPass,
+			PostgresDB:       pgDB,
+			PostgresPort:     pgPort,
+			RedisPort:        redisPort,
+		}
+
+		if err := SetupInfra(client, setupPostgres, setupRedis, infraCfg, stdout, stderr); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintf(stdout, "\n⏭️  Skipping shared infrastructure setup\n")
+	}
+
+	return nil
+}
+
+func SetupInfra(client *ssh.Client, setupPostgres, setupRedis bool, cfg config.InfraConfig, stdout, stderr io.Writer) error {
+	var services string
+	if setupPostgres {
+		ports := ""
+		if cfg.PostgresPort != "" && cfg.PostgresPort != "null" {
+			ports = fmt.Sprintf(`    ports:
+      - "%s:5432"
+`, cfg.PostgresPort)
+		}
+		services += fmt.Sprintf(`  postgres:
     container_name: graft-postgres
     image: postgres:18.1-alpine
 %s    environment:
@@ -162,24 +190,24 @@ sudo docker compose -f /opt/graft/gateway/docker-compose.yml up -d`,
       POSTGRES_DB: %s
     networks:
       - graft-public
-`, ports, pgUser, pgPass, pgDB)
+`, ports, cfg.PostgresUser, cfg.PostgresPassword, cfg.PostgresDB)
+	}
+	if setupRedis {
+		ports := ""
+		if cfg.RedisPort != "" && cfg.RedisPort != "null" {
+			ports = fmt.Sprintf(`    ports:
+      - "%s:6379"
+`, cfg.RedisPort)
 		}
-		if setupRedis {
-			ports := ""
-			if exposeRedis {
-				ports = `    ports:
-      - "6379:6379"
-`
-			}
-			services += fmt.Sprintf(`  redis:
+		services += fmt.Sprintf(`  redis:
     container_name: graft-redis
     image: redis:alpine
 %s    networks:
       - graft-public
 `, ports)
-		}
+	}
 
-		infraCmd := fmt.Sprintf(`sudo tee /opt/graft/infra/docker-compose.yml <<EOF
+	infraCmd := fmt.Sprintf(`sudo tee /opt/graft/infra/docker-compose.yml <<EOF
 version: '3.8'
 services:
 %s
@@ -188,31 +216,23 @@ networks:
     external: true
 EOF
 sudo docker compose -f /opt/graft/infra/docker-compose.yml up -d`, services)
-		
-		if err := client.RunCommand(infraCmd, stdout, stderr); err != nil {
-			return fmt.Errorf("shared infrastructure setup failed: %v", err)
-		}
-
-		// Save credentials to remote config file
-		infraCfg := config.InfraConfig{
-			PostgresUser:     pgUser,
-			PostgresPassword: pgPass,
-			PostgresDB:       pgDB,
-		}
-		data, _ := json.MarshalIndent(infraCfg, "", "  ")
-		
-		tmpFile := filepath.Join(os.TempDir(), "infra.config")
-		os.WriteFile(tmpFile, data, 0644)
-		defer os.Remove(tmpFile)
-
-		if err := client.UploadFile(tmpFile, config.RemoteInfraPath); err != nil {
-			fmt.Fprintf(stdout, "⚠️  Warning: Could not save infra credentials to remote server: %v\n", err)
-		} else {
-			fmt.Fprintln(stdout, "✅ Infra credentials saved to remote server")
-		}
-	} else {
-		fmt.Fprintf(stdout, "\n⏭️  Skipping shared infrastructure setup\n")
+	
+	if err := client.RunCommand(infraCmd, stdout, stderr); err != nil {
+		return fmt.Errorf("shared infrastructure setup failed: %v", err)
 	}
 
+	// Save credentials to remote config file
+	data, _ := json.MarshalIndent(cfg, "", "  ")
+	
+	tmpFile := filepath.Join(os.TempDir(), "infra.config")
+	os.WriteFile(tmpFile, data, 0644)
+	defer os.Remove(tmpFile)
+
+	if err := client.UploadFile(tmpFile, config.RemoteInfraPath); err != nil {
+		fmt.Fprintf(stdout, "⚠️  Warning: Could not save infra credentials to remote server: %v\n", err)
+	} else {
+		fmt.Fprintln(stdout, "✅ Infra credentials saved to remote server")
+	}
+	
 	return nil
 }

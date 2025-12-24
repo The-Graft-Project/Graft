@@ -24,6 +24,8 @@ type InfraConfig struct {
 	PostgresUser     string `json:"postgres_user"`
 	PostgresPassword string `json:"postgres_password"`
 	PostgresDB       string `json:"postgres_db"`
+	PostgresPort     string `json:"postgres_port,omitempty"`
+	RedisPort        string `json:"redis_port,omitempty"`
 }
 
 type GraftConfig struct {

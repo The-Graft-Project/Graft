@@ -7,12 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/term"
 )
 
 type Client struct {
@@ -76,7 +76,7 @@ func NewClient(host string, port int, user, keyPath string) (*Client, error) {
 		host:    host,
 		port:    port,
 		user:    user,
-		keyPath: keyPath,
+		keyPath: actualKeyPath,
 	}, nil
 }
 
@@ -93,39 +93,60 @@ func (c *Client) RunCommand(cmd string, stdout, stderr io.Writer) error {
 }
 
 func (c *Client) InteractiveSession() error {
-	session, err := c.client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	modes := ssh.TerminalModes{
-		ssh.ECHO: 1, // enable echoing
+	keyPath := c.keyPath
+	
+	// Verify key exists
+	if _, err := os.Stat(keyPath); err != nil {
+		return fmt.Errorf("ssh key not found: %s", keyPath)
 	}
 
-	// Request pseudo terminal
-	if err := session.RequestPty("xterm-256color", 80, 40, modes); err != nil {
-		return fmt.Errorf("request for pseudo terminal failed: %s", err)
+	// Find best ssh command
+	sshCmd, isWSL := findSSH()
+	
+	args := []string{}
+	if isWSL {
+		wslKeyPath := "~/.ssh/graft_key.pem"
+		windowsKeyWSL := convertToUnixPath(keyPath, true)
+		
+		// Copy key to WSL filesystem and set proper permissions
+		copyCmd := exec.Command("wsl", "bash", "-c", 
+			fmt.Sprintf("mkdir -p ~/.ssh && cp '%s' %s && chmod 600 %s", 
+				windowsKeyWSL, wslKeyPath, wslKeyPath))
+		if err := copyCmd.Run(); err != nil {
+			return fmt.Errorf("failed to copy SSH key to WSL: %v", err)
+		}
+		
+		args = []string{"ssh", "-i", wslKeyPath, "-p", fmt.Sprintf("%d", c.port), "-o", "StrictHostKeyChecking=no", fmt.Sprintf("%s@%s", c.user, c.host)}
+	} else {
+		args = []string{"-i", keyPath, "-p", fmt.Sprintf("%d", c.port), "-o", "StrictHostKeyChecking=no", fmt.Sprintf("%s@%s", c.user, c.host)}
 	}
 
-	session.Stdin = os.Stdin
-	session.Stdout = os.Stdout
-	session.Stderr = os.Stderr
+	cmd := exec.Command(sshCmd, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
-	// Put local terminal into raw mode
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		return fmt.Errorf("failed to set raw mode: %s", err)
+	return cmd.Run()
+}
+
+// findSSH attempts to find the best SSH client. On Windows, it prefers WSL to avoid permission issues.
+func findSSH() (string, bool) {
+	// Only check for WSL on Windows
+	if runtime.GOOS == "windows" {
+		if _, err := exec.LookPath("wsl"); err == nil {
+			cmd := exec.Command("wsl", "which", "ssh")
+			if err := cmd.Run(); err == nil {
+				return "wsl", true
+			}
+		}
 	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
-	// Start shell on remote
-	if err := session.Shell(); err != nil {
-		return fmt.Errorf("failed to start shell: %s", err)
+	// Try standard ssh
+	if path, err := exec.LookPath("ssh"); err == nil {
+		return path, false
 	}
 
-	// Wait for session to finish
-	return session.Wait()
+	return "ssh", false
 }
 
 func (c *Client) UploadFile(local, remote string) error {
