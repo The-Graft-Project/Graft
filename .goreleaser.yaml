@@ -7,7 +7,8 @@ before:
     - go generate ./...
 
 builds:
-  - main: ./cmd/graft
+  - id: graft
+    main: ./cmd/graft
     binary: graft
     env:
       - CGO_ENABLED=0
@@ -15,31 +16,126 @@ builds:
       - linux
       - windows
       - darwin
+      - freebsd  # Added FreeBSD
     goarch:
       - amd64
       - arm64
+      - arm      # Added ARM v7
+      - "386"    # Added 32-bit
+    goarm:
+      - "7"
+    ignore:
+      # Skip unsupported combinations
+      - goos: darwin
+        goarch: "386"
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
+    ldflags:
+      # Add version info to binary
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+      - -X main.builtBy=goreleaser
 
 archives:
-  - # This template ensures your folders look like: Graft_1.0.5_linux_amd64
+  - id: graft-archive
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ .Arch }}"
+    format: tar.gz
     format_overrides:
       - goos: windows
-        formats: [zip]
+        format: zip
+    files:
+      - README.md
+      - LICENSE*
+      - CHANGELOG.md
 
 changelog:
   sort: asc
+  use: github
   filters:
     exclude:
       - "^docs:"
       - "^test:"
+      - "^chore:"
+      - "typo"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: 'Performance'
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
 
 checksum:
   name_template: "checksums.txt"
+  algorithm: sha256
 
 snapshot:
-  version_template: "{{ .Tag }}-next"
+  version_template: "{{ incpatch .Version }}-next"
+
+# Generate SBOM (Software Bill of Materials)
+sboms:
+  - artifacts: archive
+    documents:
+      - "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.sbom.json"
+
+# Sign checksums with cosign (for SLSA)
+signs:
+  - cmd: cosign
+    env:
+      - COSIGN_EXPERIMENTAL=1
+    certificate: '${artifact}.pem'
+    signature: '${artifact}.sig'
+    args:
+      - sign-blob
+      - '--output-certificate=${certificate}'
+      - '--output-signature=${signature}'
+      - '${artifact}'
+      - --yes
+    artifacts: checksum
+    output: true
 
 release:
+  github:
+    owner: skssmd
+    name: Graft
+  draft: false
+  prerelease: auto
+  name_template: "{{ .ProjectName }} {{ .Version }}"
+  header: |
+    ## 🚀 Installation
+
+    ### Quick Install (Linux/macOS/WSL)
+```bash
+    curl -fsSL https://raw.githubusercontent.com/skssmd/Graft/main/install.sh | sh
+```
+
+    ### Windows (PowerShell)
+```powershell
+    irm https://raw.githubusercontent.com/skssmd/Graft/main/install.ps1 | iex
+```
+
+    ### Package Managers
+    - **Winget**: `winget install skssmd.Graft`
+    - **AUR**: `yay -S graft`
+
+    ### Manual Download
+    Download the archive for your platform below.
+  
   footer: |
     ---
-    Released by **Dipto** using [GoReleaser](https://github.com/goreleaser/goreleaser).
+    
+    **Full Changelog**: https://github.com/skssmd/Graft/compare/{{ .PreviousTag }}...{{ .Tag }}
+    
+    Released by **skssmd** using [GoReleaser](https://github.com/goreleaser/goreleaser).
+
+announce:
+  skip: '{{gt .Patch 0}}'  # Only announce major/minor releases, not patches
