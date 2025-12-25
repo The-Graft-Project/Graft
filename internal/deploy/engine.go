@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
@@ -21,16 +20,17 @@ import (
 type DockerComposeFile struct {
 	Version  string                       `yaml:"version"`
 	Services map[string]ComposeService    `yaml:"services"`
-	Networks map[string]interface{}       `yaml:"networks"`
+	Networks map[string]interface{}       `yaml:"networks,omitempty"`
+	Volumes  map[string]interface{}       `yaml:"volumes,omitempty"`
 }
 
 type ComposeService struct {
-	Build       *BuildConfig          `yaml:"build,omitempty"`
-	Image       string                `yaml:"image,omitempty"`
-	Environment []string              `yaml:"environment,omitempty"`
-	Labels      []string              `yaml:"labels,omitempty"`
-	Networks    []string              `yaml:"networks,omitempty"`
-	Restart     string                `yaml:"restart,omitempty"`
+	Build       *BuildConfig           `yaml:"build,omitempty"`
+	Image       string                 `yaml:"image,omitempty"`
+	Environment interface{}            `yaml:"environment,omitempty"`
+	EnvFiles    []string               `yaml:"env_file,omitempty"`
+	Labels      []string               `yaml:"labels,omitempty"`
+	OtherFields map[string]interface{} `yaml:",inline"`
 }
 
 type BuildConfig struct {
@@ -59,8 +59,8 @@ func LoadProject(path string) (*Project, error) {
 	return &p, nil
 }
 
-// Parse docker-compose.yml to extract service configurations
-func parseComposeFile(path string) (*DockerComposeFile, error) {
+// ParseComposeFile parses docker-compose.yml to extract service configurations
+func ParseComposeFile(path string) (*DockerComposeFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -80,6 +80,55 @@ func getGraftMode(labels []string) string {
 		}
 	}
 	return "localbuild" // default
+}
+
+// ProcessServiceEnvironment extracts environment variables, resolves secrets, and writes to an .env file
+func ProcessServiceEnvironment(serviceName string, service *ComposeService, secrets map[string]string) ([]string, error) {
+	var envLines []string
+
+	// Handle environment as interface{} (could be map or slice)
+	switch env := service.Environment.(type) {
+	case map[string]interface{}:
+		for k, v := range env {
+			val := fmt.Sprintf("%v", v)
+			envLines = append(envLines, fmt.Sprintf("%s=%s", k, val))
+		}
+	case []interface{}:
+		for _, v := range env {
+			envLines = append(envLines, fmt.Sprintf("%v", v))
+		}
+	}
+
+	if len(envLines) == 0 {
+		return nil, nil
+	}
+
+	// Resolve secrets in environment variables
+	for i := range envLines {
+		for key, value := range secrets {
+			envLines[i] = strings.ReplaceAll(envLines[i], fmt.Sprintf("${%s}", key), value)
+		}
+	}
+
+	// Create env directory
+	if err := os.MkdirAll("env", 0755); err != nil {
+		return nil, err
+	}
+
+	// Write to env/service.env
+	envFileRelPath := filepath.Join("env", serviceName+".env")
+	err := os.WriteFile(envFileRelPath, []byte(strings.Join(envLines, "\n")), 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update service to use env_file and clear environment
+	service.Environment = nil
+	
+	// Keep existing env_files if any
+	service.EnvFiles = append(service.EnvFiles, "./"+filepath.ToSlash(envFileRelPath))
+
+	return []string{envFileRelPath}, nil
 }
 
 // Create a tarball of a directory
@@ -158,7 +207,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 	}
 
 	// Parse compose file to get service configuration
-	compose, err := parseComposeFile(localFile)
+	compose, err := ParseComposeFile(localFile)
 	if err != nil {
 		return fmt.Errorf("failed to parse compose file: %v", err)
 	}
@@ -175,33 +224,63 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 	// Check if this is an image-based service (no build context)
 	isImageBased := service.Image != "" && service.Build == nil
 	
-	if isImageBased {
-		// For image-based services, upload compose file and pull the image
-		fmt.Fprintf(stdout, "🖼️  Image-based service detected: %s\n", service.Image)
+	// Load secrets
+	secrets, _ := config.LoadSecrets()
+
+	// Process environments for ALL services to ensure consistency in the generated docker-compose.yml
+	for sName := range compose.Services {
+		// Use a pointer to update the service in the map
+		sPtr := compose.Services[sName]
+		ProcessServiceEnvironment(sName, &sPtr, secrets)
+		compose.Services[sName] = sPtr
+	}
+
+	// Generate the actual docker-compose.yml content
+	updatedComposeData, err := yaml.Marshal(compose)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated compose file: %v", err)
+	}
+
+	// Save the actual docker-compose.yml locally
+	if err := os.WriteFile("docker-compose.yml", updatedComposeData, 0644); err != nil {
+		return fmt.Errorf("failed to save docker-compose.yml: %v", err)
+	}
+
+	// Ensure .gitignore is up to date
+	EnsureGitignore(".")
+
+	// Ensure remote projects directory exists
+	if err := client.RunCommand(fmt.Sprintf("sudo mkdir -p %s && sudo chown $USER:$USER %s", remoteDir, remoteDir), stdout, stderr); err != nil {
+		return err
+	}
+
+	// Upload env directory if it exists
+	if _, err := os.Stat("env"); err == nil {
+		fmt.Fprintf(stdout, "📤 Uploading environment files...\n")
+		remoteEnvDir := path.Join(remoteDir, "env")
+		client.RunCommand(fmt.Sprintf("mkdir -p %s", remoteEnvDir), stdout, stderr)
 		
-		// Inject secrets into the compose file
-		content, err := os.ReadFile(localFile)
-		if err != nil {
-			return err
+		// Map local env/* to remote env/*
+		files, _ := os.ReadDir("env")
+		for _, f := range files {
+			if !f.IsDir() {
+				localEnvPath := filepath.Join("env", f.Name())
+				remoteEnvPath := path.Join(remoteEnvDir, f.Name())
+				client.UploadFile(localEnvPath, remoteEnvPath)
+			}
 		}
+	}
 
-		secrets, _ := config.LoadSecrets()
-		contentStr := string(content)
-		for key, value := range secrets {
-			contentStr = strings.ReplaceAll(contentStr, fmt.Sprintf("${%s}", key), value)
-		}
+	// Upload the generated docker-compose.yml
+	remoteCompose := path.Join(remoteDir, "docker-compose.yml")
+	fmt.Fprintf(stdout, "📤 Uploading generated docker-compose.yml...\n")
+	if err := client.UploadFile("docker-compose.yml", remoteCompose); err != nil {
+		return err
+	}
 
-		// Upload modified docker-compose.yml
-		tmpFile := filepath.Join(os.TempDir(), "docker-compose.yml")
-		if err := os.WriteFile(tmpFile, []byte(contentStr), 0644); err != nil {
-			return err
-		}
-		defer os.Remove(tmpFile)
-
-		remoteCompose := path.Join(remoteDir, "docker-compose.yml")
-		if err := client.UploadFile(tmpFile, remoteCompose); err != nil {
-			return err
-		}
+	if isImageBased {
+		// For image-based services, handle pull and restart
+		fmt.Fprintf(stdout, "🖼️  Image-based service detected: %s\n", service.Image)
 		
 		if heave {
 			return nil // Heave sync ends here
@@ -376,36 +455,6 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 			}
 		}
 
-		// Inject secrets and update context in compose file
-		content, err := os.ReadFile(localFile)
-		if err != nil {
-			return err
-		}
-
-		secrets, _ := config.LoadSecrets()
-		contentStr := string(content)
-		for key, value := range secrets {
-			contentStr = strings.ReplaceAll(contentStr, fmt.Sprintf("${%s}", key), value)
-		}
-
-		// Update context for this service
-		reContext := regexp.MustCompile(fmt.Sprintf(`(?m)(^\s+)context:\s*%s\b`, regexp.QuoteMeta(service.Build.Context)))
-		contentStr = reContext.ReplaceAllString(contentStr, fmt.Sprintf(`${1}context: ./%s`, contextName))
-		
-		reBuild := regexp.MustCompile(fmt.Sprintf(`(?m)(^\s+)build:\s*%s\b`, regexp.QuoteMeta(service.Build.Context)))
-		contentStr = reBuild.ReplaceAllString(contentStr, fmt.Sprintf(`${1}build: ./%s`, contextName))
-
-		// Upload modified docker-compose.yml
-		tmpFile := filepath.Join(os.TempDir(), "docker-compose.yml")
-		if err := os.WriteFile(tmpFile, []byte(contentStr), 0644); err != nil {
-			return err
-		}
-		defer os.Remove(tmpFile)
-
-		remoteCompose := path.Join(remoteDir, "docker-compose.yml")
-		if err := client.UploadFile(tmpFile, remoteCompose); err != nil {
-			return err
-		}
 		if heave {
 			return nil // Heave sync ends here
 		}
@@ -478,7 +527,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 	}
 
 	// Parse compose file to get service configurations
-	compose, err := parseComposeFile(localFile)
+	compose, err := ParseComposeFile(localFile)
 	if err != nil {
 		return fmt.Errorf("failed to parse compose file: %v", err)
 	}
@@ -628,47 +677,60 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 		}
 	}
 
-	// Inject secrets into the compose file
-	content, err := os.ReadFile(localFile)
-	if err != nil {
-		return err
-	}
-
+	// Load secrets
 	secrets, _ := config.LoadSecrets()
-	contentStr := string(content)
-	for key, value := range secrets {
-		contentStr = strings.ReplaceAll(contentStr, fmt.Sprintf("${%s}", key), value)
+
+	// Process environments for ALL services
+	for sName := range compose.Services {
+		sPtr := compose.Services[sName]
+		ProcessServiceEnvironment(sName, &sPtr, secrets)
+		
+		// For serverbuild services, update build context to point to uploaded code
+		mode := getGraftMode(sPtr.Labels)
+		if mode == "serverbuild" && sPtr.Build != nil {
+			contextName := filepath.Base(sPtr.Build.Context)
+			if contextName == "." || contextName == "/" {
+				contextName = sName
+			}
+			sPtr.Build.Context = "./" + contextName
+		}
+		compose.Services[sName] = sPtr
 	}
 
-	// For serverbuild services, update build context to point to uploaded code
-	for serviceName, service := range compose.Services {
-		mode := getGraftMode(service.Labels)
-		if mode == "serverbuild" && service.Build != nil {
-			contextName := filepath.Base(service.Build.Context)
-			if contextName == "." || contextName == "/" {
-				contextName = serviceName
+	// Generate the actual docker-compose.yml content
+	updatedComposeData, err := yaml.Marshal(compose)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated compose file: %v", err)
+	}
+
+	// Save the actual docker-compose.yml locally
+	if err := os.WriteFile("docker-compose.yml", updatedComposeData, 0644); err != nil {
+		return fmt.Errorf("failed to save docker-compose.yml: %v", err)
+	}
+
+	// Ensure .gitignore is up to date
+	EnsureGitignore(".")
+
+	// Upload env directory if it exists
+	if _, err := os.Stat("env"); err == nil {
+		fmt.Fprintf(stdout, "\n📤 Uploading environment files...\n")
+		remoteEnvDir := path.Join(remoteDir, "env")
+		client.RunCommand(fmt.Sprintf("mkdir -p %s", remoteEnvDir), stdout, stderr)
+		
+		files, _ := os.ReadDir("env")
+		for _, f := range files {
+			if !f.IsDir() {
+				localEnvPath := filepath.Join("env", f.Name())
+				remoteEnvPath := path.Join(remoteEnvDir, f.Name())
+				client.UploadFile(localEnvPath, remoteEnvPath)
 			}
-			
-			// Update context to point to the extracted directory
-			reContext := regexp.MustCompile(fmt.Sprintf(`(?m)(^\s+)context:\s*%s\b`, regexp.QuoteMeta(service.Build.Context)))
-			contentStr = reContext.ReplaceAllString(contentStr, fmt.Sprintf(`${1}context: ./%s`, contextName))
-			
-			reBuild := regexp.MustCompile(fmt.Sprintf(`(?m)(^\s+)build:\s*%s\b`, regexp.QuoteMeta(service.Build.Context)))
-			contentStr = reBuild.ReplaceAllString(contentStr, fmt.Sprintf(`${1}build: ./%s`, contextName))
 		}
 	}
 
-	// Write modified compose file
-	tmpFile := filepath.Join(os.TempDir(), "docker-compose.yml")
-	if err := os.WriteFile(tmpFile, []byte(contentStr), 0644); err != nil {
-		return err
-	}
-	defer os.Remove(tmpFile)
-
 	// Upload docker-compose.yml
 	remoteCompose := path.Join(remoteDir, "docker-compose.yml")
-	fmt.Fprintln(stdout, "\n📤 Uploading docker-compose.yml...")
-	if err := client.UploadFile(tmpFile, remoteCompose); err != nil {
+	fmt.Fprintln(stdout, "\n📤 Uploading generated docker-compose.yml...")
+	if err := client.UploadFile("docker-compose.yml", remoteCompose); err != nil {
 		return err
 	}
 
@@ -699,13 +761,10 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 		return err
 	}
 
-	// Cleanup: Remove only dangling images (keep build cache for faster rebuilds)
+	// Cleanup: Remove only dangling images
 	fmt.Fprintln(stdout, "🧹 Cleaning up old images...")
 	cleanupCmd := "sudo docker image prune -f"
-	if err := client.RunCommand(cleanupCmd, stdout, stderr); err != nil {
-		// Don't fail deployment if cleanup fails, just warn
-		fmt.Fprintf(stdout, "⚠️  Cleanup warning: %v\n", err)
-	}
+	client.RunCommand(cleanupCmd, stdout, stderr)
 
 	fmt.Fprintln(stdout, "✅ Deployment complete!")
 	return nil

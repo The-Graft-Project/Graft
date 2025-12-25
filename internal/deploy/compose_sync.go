@@ -5,10 +5,11 @@ import (
 	"io"
 	"os"
 	"path"
-	"strings"
+	"path/filepath"
 
 	"github.com/skssmd/graft/internal/config"
 	"github.com/skssmd/graft/internal/ssh"
+	"gopkg.in/yaml.v3"
 )
 
 // SyncComposeOnly uploads only the docker-compose.yml and restarts services
@@ -23,29 +24,61 @@ func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr 
 		return fmt.Errorf("project file not found: %s", localFile)
 	}
 
-	// Inject secrets into the compose file
-	content, err := os.ReadFile(localFile)
+	// Parse compose file to get service configurations
+	compose, err := ParseComposeFile(localFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse compose file: %v", err)
 	}
 
+	// Load secrets
 	secrets, _ := config.LoadSecrets()
-	contentStr := string(content)
-	for key, value := range secrets {
-		contentStr = strings.ReplaceAll(contentStr, fmt.Sprintf("${%s}", key), value)
+
+	// Process environments for ALL services
+	for sName := range compose.Services {
+		sPtr := compose.Services[sName]
+		ProcessServiceEnvironment(sName, &sPtr, secrets)
+		compose.Services[sName] = sPtr
 	}
 
-	// Write modified compose file
-	tmpFile := path.Join(os.TempDir(), "docker-compose.yml")
-	if err := os.WriteFile(tmpFile, []byte(contentStr), 0644); err != nil {
+	// Generate the actual docker-compose.yml content
+	updatedComposeData, err := yaml.Marshal(compose)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated compose file: %v", err)
+	}
+
+	// Save the actual docker-compose.yml locally
+	if err := os.WriteFile("docker-compose.yml", updatedComposeData, 0644); err != nil {
+		return fmt.Errorf("failed to save docker-compose.yml: %v", err)
+	}
+
+	// Ensure .gitignore is up to date
+	EnsureGitignore(".")
+
+	// Ensure remote projects directory exists
+	if err := client.RunCommand(fmt.Sprintf("sudo mkdir -p %s && sudo chown $USER:$USER %s", remoteDir, remoteDir), stdout, stderr); err != nil {
 		return err
 	}
-	defer os.Remove(tmpFile)
 
-	// Upload docker-compose.yml
+	// Upload env directory if it exists
+	if _, err := os.Stat("env"); err == nil {
+		fmt.Fprintf(stdout, "📤 Uploading environment files...\n")
+		remoteEnvDir := path.Join(remoteDir, "env")
+		client.RunCommand(fmt.Sprintf("mkdir -p %s", remoteEnvDir), stdout, stderr)
+		
+		files, _ := os.ReadDir("env")
+		for _, f := range files {
+			if !f.IsDir() {
+				localEnvPath := filepath.Join("env", f.Name())
+				remoteEnvPath := path.Join(remoteEnvDir, f.Name())
+				client.UploadFile(localEnvPath, remoteEnvPath)
+			}
+		}
+	}
+
+	// Upload the generated docker-compose.yml
 	remoteCompose := path.Join(remoteDir, "docker-compose.yml")
-	fmt.Fprintln(stdout, "📤 Uploading docker-compose.yml...")
-	if err := client.UploadFile(tmpFile, remoteCompose); err != nil {
+	fmt.Fprintln(stdout, "📤 Uploading generated docker-compose.yml...")
+	if err := client.UploadFile("docker-compose.yml", remoteCompose); err != nil {
 		return err
 	}
 

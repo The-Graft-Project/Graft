@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Service struct {
@@ -243,5 +244,56 @@ networks:
 		p.Name, p.Domain, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Backend
 		p.Domain, p.Domain, p.Domain, // Footer
 	)
+	// Create env directory if it doesn't exist
+	envDir := filepath.Join(dir, "env")
+	if err := os.MkdirAll(envDir, 0755); err != nil {
+		fmt.Printf("Warning: Could not create env directory: %v\n", err)
+	}
+
+	// Update .gitignore
+	if err := EnsureGitignore(dir); err != nil {
+		fmt.Printf("Warning: %v\n", err)
+	}
+
 	return os.WriteFile(path, []byte(content), 0644)
+}
+
+// EnsureGitignore ensures that sensitive Graft files are added to .gitignore
+func EnsureGitignore(dir string) error {
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	gitignoreEntries := []string{"graft-compose.yml", ".graft/", "env/"}
+	
+	var existingContent string
+	if data, err := os.ReadFile(gitignorePath); err == nil {
+		existingContent = string(data)
+	}
+
+	lines := strings.Split(existingContent, "\n")
+	newContent := existingContent
+	modified := false
+
+	for _, entry := range gitignoreEntries {
+		found := false
+		for _, line := range lines {
+			if strings.TrimSpace(line) == entry {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			if len(newContent) > 0 && !strings.HasSuffix(newContent, "\n") {
+				newContent += "\n"
+			}
+			newContent += entry + "\n"
+			modified = true
+		}
+	}
+
+	if modified {
+		if err := os.WriteFile(gitignorePath, []byte(newContent), 0644); err != nil {
+			return fmt.Errorf("could not update .gitignore: %v", err)
+		}
+	}
+	return nil
 }

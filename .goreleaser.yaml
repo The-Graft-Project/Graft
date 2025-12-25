@@ -40,6 +40,19 @@ snapshot:
   version_template: "{{ .Tag }}-next"
 
 release:
+  header: |
+    ## Features & Improvements
+
+    1. **Global Project Contexts**: Graft now has full context over its projects and registry (host servers). You can run commands globally (no need to be in the project directory) using `graft -p <projectname> <command>`, as Graft knows exactly which project and host it is working on.
+    2. **Improved Image-based Sync**: Enhanced handling for image-based services during `sync` and `sync service` to automatically pull the latest images before restarting (Note: Manual setup of GitHub PAT token may be required on the server for private registries).
+    3. **Enhanced Secret Security**: To prevent accidental leaks of environment variables and secrets, `graft-compose.yml` is now automatically added to `.gitignore`.
+    4. **Separate Environment Management**: Service environment variables from `graft-compose` are now moved to specific files in the `env/` directory. These are securely sent to the server via SSH and automatically attached to the generated `docker-compose.yml`.
+    5. **Infrastructure Port Management**: New options to hide or reveal shared Postgres and Redis ports via mapping configurations.
+    6. **Native Interactive SSH Sessions**: Improved interactive shell access using `graft host -sh`, `graft -r <registry> -sh`, and `graft -p <projectname> host -sh`. The CLI now prioritizes native SSH sessions on Linux/Mac and WSL-based sessions on Windows.
+    7. **Optimized Sync Methods**: Direct local-to-server synchronization now uses `rsync` with a fallback to `tarball` methods. For Windows users, keeping a WSL (Ubuntu) installation is recommended for the best experience.
+    8. **Docker Compose Passthrough for Pull**: `graft pull` is now a docker compose passthrough command, making `docker compose pull` doable directly through Graft (manual docker login setup required on server to pull images).
+    9. **Infrastructure Hard Refresh**: Infrastructure services (Database/Redis) can now undergo a hard refresh to force repulls and rebuilds.
+
   footer: |
     ---
     Released by **skssmd** using [GoReleaser](https://github.com/goreleaser/goreleaser).
