@@ -177,9 +177,10 @@ func LoadSecrets() (map[string]string, error) {
 
 // ProjectMetadata stores local project information
 type ProjectMetadata struct {
-	Name       string `json:"name"`
-	RemotePath string `json:"remote_path"`
-	Initialized bool `json:"initialized"`
+	Name           string `json:"name"`
+	RemotePath     string `json:"remote_path"`
+	Initialized    bool   `json:"initialized"`
+	DeploymentMode string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild"
 }
 
 // SaveProjectMetadata saves project metadata to .graft/project.json and registers it globally

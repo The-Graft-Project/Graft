@@ -157,6 +157,8 @@ func main() {
 			return
 		}
 		runPull(registryContext, args[1])
+	case "mode":
+		runMode()
 	default:
 		// Handle the --pull flag as requested in the specific format
 		// foundPull := false
@@ -197,6 +199,7 @@ func printUsage() {
 	fmt.Println("  db/redis <name> init      Initialize shared infrastructure")
 	fmt.Println("  sync [service] [-h]       Deploy project to server")
 	fmt.Println("  logs <service>            Stream service logs")
+	fmt.Println("  mode                      Change project deployment mode")
 }
 
 
@@ -388,6 +391,76 @@ func runInit(args []string) {
 	domain, _ := reader.ReadString('\n')
 	domain = strings.TrimSpace(domain)
 
+	// Deployment mode selection
+	fmt.Println("\n📦 Project Type / Deployment Mode:")
+	fmt.Println("  Git-based modes:")
+	fmt.Println("    [1] git-images (GitHub Actions → GHCR → automated deployment via graft-hook)")
+	fmt.Println("    [2] git-repo-serverbuild (GitHub Actions → server build → automated deployment)")
+	fmt.Println("    [3] git-manual (Git repo only, no CI/CD workflow provided)")
+	fmt.Println("\n  Direct deployment modes:")
+	fmt.Println("    [4] direct-serverbuild (upload source → build on server)")
+	fmt.Println("    [5] direct-localbuild (build locally → upload image)")
+	fmt.Print("\nSelect deployment mode [1-5]: ")
+	
+	modeInput, _ := reader.ReadString('\n')
+	modeInput = strings.TrimSpace(modeInput)
+	
+	var deploymentMode string
+	switch modeInput {
+	case "1":
+		deploymentMode = "git-images"
+		fmt.Println("\n✅ Git-based image deployment selected (GHCR)")
+		fmt.Println("\n📦 This mode uses GitHub Actions to build images and push to GHCR.")
+		fmt.Println("\n⚠️  IMPORTANT: Requires graft-hook webhook service for automated deployment")
+		fmt.Println("   The graft-hook service listens for GitHub webhooks and automatically")
+		fmt.Println("   deploys your project when new images are pushed to GHCR.")
+		fmt.Println("\n   After 'graft init', you'll need to:")
+		fmt.Println("   1. Set up GitHub Actions workflow (see examples/github-actions-workflow.yml)")
+		fmt.Println("   2. Deploy graft-hook to your server")
+		fmt.Println("   3. Configure GitHub webhook in your repository")
+		fmt.Println("   4. Set up GHCR authentication on the server")
+		fmt.Println("\n   See documentation: graft-hook setup guide")
+	case "2":
+		deploymentMode = "git-repo-serverbuild"
+		fmt.Println("\n✅ Git-based server build deployment selected")
+		fmt.Println("\n📦 This mode uses GitHub Actions to trigger server-side builds.")
+		fmt.Println("\n   Workflow:")
+		fmt.Println("   1. GitHub Actions triggers on push")
+		fmt.Println("   2. Webhook notifies server to pull latest code")
+		fmt.Println("   3. Server builds Docker images from source")
+		fmt.Println("   4. Services automatically restart with new build")
+		fmt.Println("\n   After 'graft init', you'll need to:")
+		fmt.Println("   1. Set up GitHub Actions workflow (see examples/github-actions-workflow.yml)")
+		fmt.Println("   2. Configure graft-hook on server for build triggers")
+		fmt.Println("   3. Ensure server has access to your Git repository")
+		fmt.Println("\n   Automated deployment via webhook.")
+	case "3":
+		deploymentMode = "git-manual"
+		fmt.Println("\n✅ Git manual deployment selected")
+		fmt.Println("\n📦 This mode sets up the server for Git-based deployment without CI/CD.")
+		fmt.Println("\n   Workflow:")
+		fmt.Println("   1. You manage your Git repository independently")
+		fmt.Println("   2. Run 'graft sync' when ready to deploy")
+		fmt.Println("   3. Server pulls from your Git repository")
+		fmt.Println("   4. Server builds and deploys")
+		fmt.Println("\n   After 'graft init':")
+		fmt.Println("   1. Set up your Git repository")
+		fmt.Println("   2. Configure server access to repository (SSH keys, tokens)")
+		fmt.Println("   3. Run 'graft sync' to deploy")
+		fmt.Println("\n   No CI/CD workflow or webhook setup required.")
+	case "4":
+		deploymentMode = "direct-serverbuild"
+		fmt.Println("\n✅ Direct server build mode selected")
+		fmt.Println("   Source code will be uploaded to server and built there.")
+	case "5":
+		deploymentMode = "direct-localbuild"
+		fmt.Println("\n✅ Direct local build mode selected")
+		fmt.Println("   Docker images will be built locally and uploaded to server.")
+	default:
+		fmt.Println("Invalid selection, defaulting to direct-serverbuild")
+		deploymentMode = "direct-serverbuild"
+	}
+
 	// Save local config
 	cfg := &config.GraftConfig{
 		Server: config.ServerConfig{
@@ -399,13 +472,14 @@ func runInit(args []string) {
 
 
 	// Generate boilerplate
-	p := deploy.GenerateBoilerplate(projName, domain)
+	p := deploy.GenerateBoilerplate(projName, domain, deploymentMode)
 	p.Save(".")
 
 	// Save project metadata
 	meta := &config.ProjectMetadata{
-		Name:       projName,
-		RemotePath: fmt.Sprintf("/opt/graft/projects/%s", projName),
+		Name:           projName,
+		RemotePath:     fmt.Sprintf("/opt/graft/projects/%s", projName),
+		DeploymentMode: deploymentMode,
 	}
 	if err := config.SaveProjectMetadata(meta); err != nil {
 		fmt.Printf("Warning: Could not save project metadata: %v\n", err)
@@ -414,6 +488,9 @@ func runInit(args []string) {
 	fmt.Printf("\n✨ Project '%s' initialized!\n", projName)
 	fmt.Printf("Local config: .graft/config.json\n")
 	fmt.Printf("Boilerplate: graft-compose.yml\n")
+	if deploymentMode == "git-images" || deploymentMode == "git-repo-serverbuild" {
+		fmt.Printf("GitHub Actions Example: examples/github-actions-workflow.yml\n")
+	}
 }
 
 func runHostInit() {

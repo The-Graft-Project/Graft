@@ -17,15 +17,17 @@ type Service struct {
 }
 
 type Project struct {
-	Name     string             `yaml:"name"`
-	Domain   string             `yaml:"domain"`
-	Services map[string]Service `yaml:"services"`
+	Name           string             `yaml:"name"`
+	Domain         string             `yaml:"domain"`
+	DeploymentMode string             `yaml:"-"` // Not exported to YAML, used for generation logic
+	Services       map[string]Service `yaml:"services"`
 }
 
-func GenerateBoilerplate(name, domain string) *Project {
+func GenerateBoilerplate(name, domain, deploymentMode string) *Project {
 	p := &Project{
-		Name:   name,
-		Domain: domain,
+		Name:           name,
+		Domain:         domain,
+		DeploymentMode: deploymentMode,
 		Services: map[string]Service{
 			"frontend": {
 				Name:  "frontend",
@@ -44,9 +46,27 @@ func (p *Project) Save(dir string) error {
 	filename := "graft-compose.yml"
 	path := filepath.Join(dir, filename)
 	
+	// Determine the graft mode label based on deployment mode
+	var graftMode string
+	switch p.DeploymentMode {
+	case "git-images":
+		graftMode = "git-images"
+	case "git-repo-serverbuild":
+		graftMode = "git-repo-serverbuild"
+	case "git-manual":
+		graftMode = "git-manual"
+	case "direct-localbuild":
+		graftMode = "localbuild"
+	case "direct-serverbuild":
+		graftMode = "serverbuild"
+	default:
+		graftMode = "serverbuild" // Default to serverbuild for backward compatibility
+	}
+	
 	// Generate a valid docker-compose.yml file that can be used directly
 	template := `# Docker Compose Configuration for: %s
 # Domain: %s
+# Deployment Mode: %s
 # This is a standard docker-compose.yml file - you can run it with:
 # docker compose -f graft-compose.yml up -d
 
@@ -83,8 +103,8 @@ services:
       - PORT=3000
     
     labels:
-      # Graft deployment mode: localbuild | serverbuild
-      - "graft.mode=serverbuild"
+      # Graft deployment mode: git | git-repo-manual | localbuild | serverbuild
+      - "graft.mode=%s"
       
       # Enable Traefik for this container
       - "traefik.enable=true"
@@ -158,7 +178,7 @@ services:
     
     labels:
       # Graft deployment mode
-      - "graft.mode=serverbuild"
+      - "graft.mode=%s"
       
       # Enable Traefik for this container
       - "traefik.enable=true"
@@ -219,9 +239,13 @@ networks:
 #   - Example: %s/api/users → backend receives /users
 #
 # Deployment Modes (graft.mode label):
-#   - static: Upload built files directly (npm run build output)
-#   - localbuild: Build Docker image locally, upload to server
-#   - serverbuild: Upload source, build Docker image on server
+#   Git-based modes:
+#     - git-images: GitHub Actions builds and pushes to GHCR, automated deployment via webhook
+#     - git-repo-serverbuild: GitHub Actions triggers server build, automated deployment via webhook
+#     - git-manual: Git repository setup, manual deployment via graft sync (no CI/CD workflow)
+#   Direct modes:
+#     - localbuild: Build Docker image locally, upload to server
+#     - serverbuild: Upload source, build Docker image on server
 #
 # Database Setup:
 #   1. Run: graft db myproject init
@@ -249,8 +273,10 @@ networks:
 `
 	
 	content := fmt.Sprintf(template,
-		p.Name, p.Domain, // Header info
+		p.Name, p.Domain, p.DeploymentMode, // Header info
+		graftMode, // Frontend graft.mode
 		p.Domain, p.Name, p.Domain, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Frontend: domain, name-router, domain-host, name-priority, name-router-service, name-service, name-service-port, name-router-entrypoints, name-router-tls
+		graftMode, // Backend graft.mode
 		p.Domain, p.Name, p.Domain, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Backend: domain, name-router, domain-host, name-priority, name-middleware, name-router-middleware, name-middleware-strip, name-router-service, name-service, name-service-port, name-router-entrypoints, name-router-tls
 		p.Domain, p.Domain, p.Domain, // Footer
 	)

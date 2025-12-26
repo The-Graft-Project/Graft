@@ -1,0 +1,125 @@
+name: Build and Deploy to GHCR
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        service: [frontend, backend]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Optional: Trigger deployment webhook (for git mode only, not git-repo-manual)
+  # Uncomment this job if you're using automated deployment via graft-hook
+  # deploy:
+  #   needs: build-and-push
+  #   runs-on: ubuntu-latest
+  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  #   
+  #   steps:
+  #     - name: Trigger deployment webhook
+  #       run: |
+  #         curl -X POST https://your-domain.com/graft-hook/deploy \
+  #           -H "Content-Type: application/json" \
+  #           -H "Authorization: Bearer ${{ secrets.GRAFT_WEBHOOK_TOKEN }}" \
+  #           -d '{
+  #             "repository": "${{ github.repository }}",
+  #             "ref": "${{ github.ref }}",
+  #             "sha": "${{ github.sha }}",
+  #             "pusher": "${{ github.actor }}"
+  #           }'
+
+# ============================================================================
+# USAGE INSTRUCTIONS
+# ============================================================================
+#
+# This workflow builds Docker images for your services and pushes them to
+# GitHub Container Registry (GHCR).
+#
+# Setup Steps:
+# 1. Copy this file to .github/workflows/deploy.yml in your repository
+# 2. Update the 'service' matrix to match your services (frontend, backend, etc.)
+# 3. Ensure each service has a Dockerfile in its directory
+# 4. Push to your repository - the workflow will run automatically
+#
+# For git-repo-manual mode:
+# - After the workflow completes, run: graft sync
+# - The server will pull the latest images from GHCR
+#
+# For git mode (automated):
+# - Uncomment the 'deploy' job
+# - Set up GRAFT_WEBHOOK_TOKEN secret in your repository
+# - Configure graft-hook on your server
+# - Deployment will happen automatically on push to main
+#
+# Image Naming:
+# - Images are tagged with: ghcr.io/username/repo/service:tag
+# - Tags include: branch name, PR number, semver, commit SHA, and 'latest'
+#
+# Viewing Images:
+# - Go to your repository on GitHub
+# - Click "Packages" to see published images
+# - Images are public by default (can be changed in package settings)
+#
+# Server Setup (Required):
+# 1. SSH into your server
+# 2. Log in to GHCR: 
+#    echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+# 3. Create a Personal Access Token with 'read:packages' scope
+# 4. Use that token for the docker login command
+#
+# Troubleshooting:
+# - If build fails, check Dockerfile syntax
+# - If push fails, check repository package permissions
+# - If deployment fails, verify GHCR authentication on server
