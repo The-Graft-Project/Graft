@@ -181,6 +181,7 @@ type ProjectMetadata struct {
 	RemotePath     string `json:"remote_path"`
 	Initialized    bool   `json:"initialized"`
 	DeploymentMode string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild"
+	WebhookDomain  string `json:"webhook_domain,omitempty"`
 }
 
 // SaveProjectMetadata saves project metadata to .graft/project.json and registers it globally

@@ -141,3 +141,51 @@ func ExtractArchive(tarballPath, destDir string) error {
 	
 	return nil
 }
+
+// GetRemoteURL returns the Git remote URL for the origin remote
+func GetRemoteURL(dir string) (string, error) {
+	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
+	cmd.Dir = dir
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git remote URL: %v", err)
+	}
+	
+	return strings.TrimSpace(string(output)), nil
+}
+
+// ParseGitHubRepo extracts owner and repository name from a GitHub remote URL
+// Supports both HTTPS and SSH formats:
+// - https://github.com/owner/repo.git
+// - git@github.com:owner/repo.git
+func ParseGitHubRepo(remoteURL string) (owner, repo string, err error) {
+	remoteURL = strings.TrimSpace(remoteURL)
+	
+	// Remove .git suffix if present
+	remoteURL = strings.TrimSuffix(remoteURL, ".git")
+	
+	var path string
+	
+	// Handle SSH format: git@github.com:owner/repo
+	if strings.HasPrefix(remoteURL, "git@github.com:") {
+		path = strings.TrimPrefix(remoteURL, "git@github.com:")
+	} else if strings.Contains(remoteURL, "github.com/") {
+		// Handle HTTPS format: https://github.com/owner/repo
+		parts := strings.Split(remoteURL, "github.com/")
+		if len(parts) < 2 {
+			return "", "", fmt.Errorf("invalid GitHub URL format: %s", remoteURL)
+		}
+		path = parts[1]
+	} else {
+		return "", "", fmt.Errorf("not a GitHub repository URL: %s", remoteURL)
+	}
+	
+	// Split owner/repo
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("invalid repository path: %s", path)
+	}
+	
+	return parts[0], parts[1], nil
+}

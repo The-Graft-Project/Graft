@@ -51,6 +51,86 @@ graft init [-f, --force]
 
 ---
 
+### `graft mode`
+Change the deployment mode of an existing project.
+
+```bash
+graft mode
+```
+
+**Interactive Selection:**
+Displays current deployment mode and prompts you to select a new one from 5 available modes.
+
+**Deployment Modes:**
+
+**Git-based modes:**
+1. **git-images** - GitHub Actions builds images and pushes to GHCR, automated deployment via graft-hook webhook
+   - Requires: GitHub Actions workflow, graft-hook service, GHCR authentication
+   - Best for: Teams using GitHub Container Registry with automated deployments
+   
+2. **git-repo-serverbuild** - GitHub Actions triggers server to pull and build from repository
+   - Requires: GitHub Actions workflow, graft-hook service, server Git access
+   - Best for: Automated deployments with server-side builds
+   
+3. **git-manual** - Git repository setup without CI/CD workflow
+   - Requires: Git repository, server Git access
+   - Best for: Manual control with Git version tracking
+   - Deploy with: `graft sync` when ready
+
+**Direct deployment modes:**
+4. **direct-serverbuild** - Upload source code, build on server (default)
+   - Requires: Nothing extra
+   - Best for: Simple projects, quick iterations
+   
+5. **direct-localbuild** - Build Docker images locally, upload to server
+   - Requires: Docker on local machine
+   - Best for: Complex builds, testing locally before deployment
+
+**What it does:**
+1. Shows current deployment mode
+2. Prompts for new mode selection
+3. Updates `.graft/project.json` with new mode
+4. Regenerates `graft-compose.yml` with correct labels
+5. Sets `initialized: false` (requires re-deployment)
+
+**Example:**
+```bash
+$ graft mode
+
+📦 Current deployment mode: direct-serverbuild
+
+📦 Select New Deployment Mode:
+  Git-based modes:
+    [1] git-images (GitHub Actions → GHCR → automated deployment via graft-hook)
+    [2] git-repo-serverbuild (GitHub Actions → server build → automated deployment)
+    [3] git-manual (Git repo only, no CI/CD workflow provided)
+
+  Direct deployment modes:
+    [4] direct-serverbuild (upload source → build on server)
+    [5] direct-localbuild (build locally → upload image)
+
+Select deployment mode [1-5]: 1
+
+✅ Git-based image deployment selected (GHCR)
+
+🔄 Regenerating graft-compose.yml with new deployment mode...
+
+✅ Deployment mode changed to: git-images
+📝 Updated files:
+   - .graft/project.json
+   - graft-compose.yml
+
+💡 Don't forget to set up GitHub Actions workflow!
+   See: examples/github-actions-workflow.yml
+```
+
+**After changing mode:**
+- Run `graft sync` to deploy with the new mode
+- For git-images or git-repo-serverbuild: Set up GitHub Actions workflow
+- For git modes: Configure server access to your Git repository
+
+---
+
 ### `graft host init`
 Initialize the remote server with Docker, Docker Compose, Traefik, and optionally shared infrastructure.
 
@@ -725,6 +805,7 @@ graft exec backend sh
 
 ### Native Graft Commands
 - `graft init [-f]` - Initialize project (configures server & project)
+- `graft mode` - Change project deployment mode
 - `graft registry [ls|add|del]` - Manage registered servers
 - `graft projects ls` - List local projects
 - `graft -p <name> host [sh]` - Project-bound shell access

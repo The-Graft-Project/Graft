@@ -72,6 +72,42 @@ func ParseComposeFile(path string) (*DockerComposeFile, error) {
 	return &compose, nil
 }
 
+// GenerateLocalCompose generates a standard docker-compose.yml from graft-compose.yml
+func GenerateLocalCompose(localFile string) error {
+	// Parse compose file to get service configuration
+	compose, err := ParseComposeFile(localFile)
+	if err != nil {
+		return fmt.Errorf("failed to parse compose file: %v", err)
+	}
+
+	// Load secrets
+	secrets, _ := config.LoadSecrets()
+
+	// Process environments for ALL services to ensure consistency in the generated docker-compose.yml
+	for sName := range compose.Services {
+		// Use a pointer to update the service in the map
+		sPtr := compose.Services[sName]
+		ProcessServiceEnvironment(sName, &sPtr, secrets)
+		compose.Services[sName] = sPtr
+	}
+
+	// Generate the actual docker-compose.yml content
+	updatedComposeData, err := yaml.Marshal(compose)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated compose file: %v", err)
+	}
+
+	// Save the actual docker-compose.yml locally
+	if err := os.WriteFile("docker-compose.yml", updatedComposeData, 0644); err != nil {
+		return fmt.Errorf("failed to save docker-compose.yml: %v", err)
+	}
+
+	// Ensure .gitignore is up to date
+	EnsureGitignore(".")
+
+	return nil
+}
+
 // Extract graft.mode from service labels
 func getGraftMode(labels []string) string {
 	for _, label := range labels {

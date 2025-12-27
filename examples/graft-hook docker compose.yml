@@ -1,0 +1,42 @@
+
+
+version: '3.8'
+
+
+services:
+  # Frontend Service (React/Vue/Angular/etc)
+  graft-hook:
+    image: ghcr.io/skssmd/graft-hook:latest
+ 
+    environment:
+      - configpath=/opt/graft/config/projects.json
+      - RUST_LOG=info
+    
+
+    labels:
+      # Graft deployment mode
+      - "graft.mode=serverbuild"
+      
+      # Enable Traefik for this container
+      - "traefik.enable=true"
+
+      - "traefik.http.routers.graft-hook.rule=Host(`graft-hook.docusup.com`)"
+      - "traefik.http.routers.graft-hook.priority=1"
+
+      - "traefik.http.routers.graft-hook.service=graft-hook-service"
+      - "traefik.http.services.graft-hook-service.loadbalancer.server.port=3000"
+      - "traefik.http.routers.graft-hook.entrypoints=websecure"
+      - "traefik.http.routers.graft-hook.tls.certresolver=letsencrypt"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      
+      - /opt/graft:/opt/graft/
+      
+    networks:
+      - graft-public
+    
+    restart: always
+    
+networks:
+  graft-public:
+    external: true  

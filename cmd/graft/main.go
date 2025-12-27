@@ -724,6 +724,20 @@ func runSync(args []string) {
 	}
 	defer client.Close()
 
+	// Load project metadata
+	meta, err := config.LoadProjectMetadata()
+	if err != nil {
+		fmt.Printf("Warning: Could not load project metadata: %v\n", err)
+	}
+
+	// Handle Git-based deployment modes
+	if shouldReturn, err := handleGitMode(client, meta, localFile); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	} else if shouldReturn {
+		return
+	}
+
 	if serviceName != "" {
 		fmt.Printf("🎯 Syncing service: %s\n", serviceName)
 		if useGit {
