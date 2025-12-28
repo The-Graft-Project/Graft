@@ -440,6 +440,21 @@ graft logs frontend
 
 ---
 
+### `graft hook logs`
+Monitor the `graft-hook` service logs, including build errors and deployment events.
+
+```bash
+graft hook logs graft-hook
+```
+
+**Features:**
+- ✅ Real-time monitoring of webhook events
+- ✅ View detailed build and deployment errors
+- ✅ Perfect for debugging CI/CD pipeline failures
+- ✅ Press Ctrl+C to stop
+
+---
+
 ## Docker Compose Passthrough
 
 **Any command not listed above is automatically passed to `docker compose` on the remote server!**

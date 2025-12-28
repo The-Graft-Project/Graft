@@ -139,13 +139,13 @@ func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr 
 		if err := client.UploadFile("docker-compose.yml", remoteCompose); err != nil {
 			return fmt.Errorf("failed to upload docker-compose.yml: %v", err)
 		}
-		fmt.Fprintln(stdout, "✅ docker-compose.yml uploaded successfully!")
+		
 	}
 
-	if heave {
+	
 		fmt.Fprintf(stdout, "✅ %s file uploaded!\n", printstr)
-		return nil
-	}
+		
+	
 
 	if !heave {
 		// Restart services without rebuilding

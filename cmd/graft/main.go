@@ -587,6 +587,7 @@ func runInit(args []string) {
 	}
 
 	// Graft-Hook detection and deployment for automated modes
+	var currentHookURL string
 	if deploymentMode == "git-images" || deploymentMode == "git-repo-serverbuild" || deploymentMode == "git-manual" {
 		if client != nil {
 			installHook := false
@@ -601,6 +602,10 @@ func runInit(args []string) {
 					installHook = true
 				} else {
 					fmt.Println("\n✅ graft-hook is already installed on the server.")
+					// Fetch existing hook URL from global registry if available
+					if srv, exists := gCfg.Servers[registryName]; exists {
+						currentHookURL = srv.GraftHookURL
+					}
 				}
 			}
 
@@ -643,6 +648,14 @@ networks:
 				os.Remove(tmpFile)
 				client.RunCommand("sudo docker compose -f /opt/graft/webhook/docker-compose.yml up -d", os.Stdout, os.Stderr)
 				fmt.Println("✅ graft-hook deployed.")
+				currentHookURL = fmt.Sprintf("https://%s", hookDomain)
+
+				// Save to global registry
+				if srv, exists := gCfg.Servers[registryName]; exists {
+					srv.GraftHookURL = currentHookURL
+					gCfg.Servers[registryName] = srv
+					config.SaveGlobalConfig(gCfg)
+				}
 			}
 		}
 	}
@@ -690,6 +703,7 @@ networks:
 		Name:           projName,
 		RemotePath:     fmt.Sprintf("/opt/graft/projects/%s", projName),
 		DeploymentMode: deploymentMode,
+		GraftHookURL:   currentHookURL,
 	}
 	if err := config.SaveProjectMetadata(meta); err != nil {
 		fmt.Printf("Warning: Could not save project metadata: %v\n", err)
@@ -947,7 +961,7 @@ func runSync(args []string) {
 		}
 
 		// Generate Workflows
-		if err := deploy.GenerateWorkflows(p, remoteURL, meta.DeploymentMode ); err != nil {
+		if err := deploy.GenerateWorkflows(p, remoteURL, meta.DeploymentMode, meta.GraftHookURL); err != nil {
 			fmt.Printf("Error generating workflows: %v\n", err)
 			return
 		}
@@ -957,11 +971,7 @@ func runSync(args []string) {
 		// Ask for compose generation and transfer
 		
 		
-			// Save project to ensure graft-compose.yml is local
-			if err := p.Save("."); err != nil {
-				fmt.Printf("Error saving project: %v\n", err)
-				return
-			}
+			
 			
 			client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
 			if err != nil {

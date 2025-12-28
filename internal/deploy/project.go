@@ -340,7 +340,7 @@ func EnsureGitignore(dir string) error {
 }
 
 // GenerateWorkflows creates .github/workflows directory and populates it with CI and Deploy templates
-func GenerateWorkflows(p *Project, remoteURL string, mode string) error {
+func GenerateWorkflows(p *Project, remoteURL string, mode string, webhook string) error {
 	fmt.Println("received workflow mode: ", mode)
 	workflowsDir := filepath.Join(".github", "workflows")
 	if err := os.MkdirAll(workflowsDir, 0755); err != nil {
@@ -389,10 +389,23 @@ func GenerateWorkflows(p *Project, remoteURL string, mode string) error {
 			}
 		}
 
+		// Prepare webhook URL
+		hookURL := webhook
+		if hookURL == "" {
+			hookURL = "https://graft-hook.example.com"
+		}
+		if !strings.HasSuffix(hookURL, "/webhook") && !strings.Contains(hookURL, "/webhook?") {
+			if strings.HasSuffix(hookURL, "/") {
+				hookURL += "webhook"
+			} else {
+				hookURL += "/webhook"
+			}
+		}
+
 		deployTemplate := `name: Deploy
 
 on:
-%s
+%%s
   release:
     types: [published]
   workflow_dispatch:
@@ -401,16 +414,16 @@ jobs:
   deploy:
     name: Deploy via Webhook
     runs-on: ubuntu-latest
-    %s
+    %%s
     environment: CI CD
     
     steps:
       - name: Send Webhook Request
         run: |
-          curl -X POST https://graft-hook.example.com/webhook \
+          curl -X POST %s \
             -H "Content-Type: application/json" \
             -d '{
-              "project": "%%s",
+              "project": "%%%%s",
               "repository": "${{ github.event.repository.name }}",
               "token": "${{ secrets.GITHUB_TOKEN }}",
               "user": "${{ github.actor }}",
@@ -419,8 +432,10 @@ jobs:
             }'
 `
 		deployPath := filepath.Join(workflowsDir, "deploy.yml")
-		deployContent := fmt.Sprintf(deployTemplate, triggers, condition, deployType)
-		// Now format the project name into the content
+		deployContent := fmt.Sprintf(deployTemplate, hookURL, deployType)
+		// Now format the triggers and condition into the content (%%s -> %s)
+		deployContent = fmt.Sprintf(deployContent, triggers, condition)
+		// Now format the project name into the content (%%%%s -> %s)
 		deployContent = fmt.Sprintf(deployContent, p.Name)
 		
 		if err := os.WriteFile(deployPath, []byte(deployContent), 0644); err != nil {
