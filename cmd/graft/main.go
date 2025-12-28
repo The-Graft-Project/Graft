@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
 	"github.com/skssmd/graft/internal/deploy"
+	"github.com/skssmd/graft/internal/git"
 	"github.com/skssmd/graft/internal/hostinit"
 	"github.com/skssmd/graft/internal/infra"
 	"github.com/skssmd/graft/internal/ssh"
@@ -70,6 +72,8 @@ func main() {
 	switch command {
 	case "init":
 		runInit(args[1:])
+	case "hook":
+		runHook(args[1:])
 	case "host":
 		if len(args) < 2 {
 			fmt.Println("Usage: graft host [init|clean|sh|self-destruct]")
@@ -200,6 +204,94 @@ func printUsage() {
 	fmt.Println("  sync [service] [-h]       Deploy project to server")
 	fmt.Println("  logs <service>            Stream service logs")
 	fmt.Println("  mode                      Change project deployment mode")
+}
+func runMode() {
+	reader := bufio.NewReader(os.Stdin)
+	
+	// Load project metadata
+	meta, err := config.LoadProjectMetadata()
+	if err != nil {
+		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
+		return
+	}
+
+	// Display current mode
+	currentMode := meta.DeploymentMode
+	if currentMode == "" {
+		currentMode = "direct-serverbuild (default)"
+	}
+	fmt.Printf("\n📦 Current deployment mode: %s\n", currentMode)
+
+	// Display mode options
+	fmt.Println("\n📦 Select New Deployment Mode:")
+	fmt.Println("  Git-based modes:")
+	fmt.Println("    [1] git-images (GitHub Actions → GHCR → automated deployment via graft-hook)")
+	fmt.Println("    [2] git-repo-serverbuild (GitHub Actions → server build → automated deployment)")
+	fmt.Println("    [3] git-manual (Git repo only, no CI/CD workflow provided)")
+	fmt.Println("\n  Direct deployment modes:")
+	fmt.Println("    [4] direct-serverbuild (upload source → build on server)")
+	fmt.Println("    [5] direct-localbuild (build locally → upload image)")
+	fmt.Print("\nSelect deployment mode [1-5]: ")
+	
+	modeInput, _ := reader.ReadString('\n')
+	modeInput = strings.TrimSpace(modeInput)
+	
+	var newMode string
+	switch modeInput {
+	case "1":
+		newMode = "git-images"
+		fmt.Println("\n✅ Git-based image deployment selected (GHCR)")
+	case "2":
+		newMode = "git-repo-serverbuild"
+		fmt.Println("\n✅ Git-based server build deployment selected")
+	case "3":
+		newMode = "git-manual"
+		fmt.Println("\n✅ Git manual deployment selected")
+	case "4":
+		newMode = "direct-serverbuild"
+		fmt.Println("\n✅ Direct server build mode selected")
+	case "5":
+		newMode = "direct-localbuild"
+		fmt.Println("\n✅ Direct local build mode selected")
+	default:
+		fmt.Println("Invalid selection. Mode not changed.")
+		return
+	}
+
+	// Update project metadata
+	meta.DeploymentMode = newMode
+	meta.Initialized = false // Reset to false when mode changes
+	if err := config.SaveProjectMetadata(meta); err != nil {
+		fmt.Printf("Error: Could not save project metadata: %v\n", err)
+		return
+	}
+
+	// Regenerate compose file with new mode
+	fmt.Println("\n🔄 Regenerating graft-compose.yml with new deployment mode...")
+	
+	// Load existing compose to get project name and domain
+	p, err := deploy.LoadProject("graft-compose.yml")
+	if err != nil {
+		fmt.Printf("Warning: Could not load existing compose file: %v\n", err)
+		fmt.Println("You may need to manually update graft-compose.yml labels.")
+	} else {
+		// Update deployment mode and save
+		p.DeploymentMode = newMode
+		if err := p.Save("."); err != nil {
+			fmt.Printf("Error: Could not save compose file: %v\n", err)
+			return
+		}
+	}
+
+	fmt.Printf("\n✅ Deployment mode changed to: %s\n", newMode)
+	fmt.Println("📝 Updated files:")
+	fmt.Println("   - .graft/project.json")
+	fmt.Println("   - graft-compose.yml")
+	
+	if newMode == "git-images" || newMode == "git-repo-serverbuild" {
+		fmt.Println("\n💡 Don't forget to set up GitHub Actions workflow!")
+		fmt.Println("   See: examples/github-actions-workflow.yml")
+	}
 }
 
 
@@ -350,6 +442,37 @@ func runInit(args []string) {
 		fmt.Printf("⚠️  Warning: Could not connect to host to check for conflicts: %v\n", err)
 	} else {
 		defer client.Close()
+
+		// Host Initialization Check
+		if err := client.RunCommand("ls -d /opt/graft", nil, nil); err != nil {
+			fmt.Print("\n⚠️  Host is not initialized. Do you want to initialize the host? (y/n): ")
+			input, _ := reader.ReadString('\n')
+			input = strings.ToLower(strings.TrimSpace(input))
+			if input == "y" || input == "yes" {
+				fmt.Println("🚀 Starting host initialization...")
+				// We call a slim version of host init or prompt for infra
+				setupPostgres := false
+				setupRedis := false
+				fmt.Print("  Setup shared Postgres? (y/n): ")
+				input, _ = reader.ReadString('\n')
+				setupPostgres = strings.ToLower(strings.TrimSpace(input)) == "y"
+				fmt.Print("  Setup shared Redis? (y/n): ")
+				input, _ = reader.ReadString('\n')
+				setupRedis = strings.ToLower(strings.TrimSpace(input)) == "y"
+
+				pgUser := strings.ToLower("graft_admin_" + config.GenerateRandomString(4))
+				pgPass := config.GenerateRandomString(24)
+				pgDB := strings.ToLower("graft_master_" + config.GenerateRandomString(4))
+
+				if err := hostinit.InitHost(client, setupPostgres, setupRedis, false, false, pgUser, pgPass, pgDB, os.Stdout, os.Stderr); err != nil {
+					fmt.Printf("❌ Host initialization failed: %v\n", err)
+					return
+				}
+				fmt.Println("✅ Host initialized.")
+			} else {
+				fmt.Println("⏭️  Skipping host initialization. Some features may not work.")
+			}
+		}
 		
 		// Ensure config dir exists
 		client.RunCommand("sudo mkdir -p /opt/graft/config && sudo chown $USER:$USER /opt/graft/config", os.Stdout, os.Stderr)
@@ -392,73 +515,160 @@ func runInit(args []string) {
 	domain = strings.TrimSpace(domain)
 
 	// Deployment mode selection
-	fmt.Println("\n📦 Project Type / Deployment Mode:")
-	fmt.Println("  Git-based modes:")
-	fmt.Println("    [1] git-images (GitHub Actions → GHCR → automated deployment via graft-hook)")
-	fmt.Println("    [2] git-repo-serverbuild (GitHub Actions → server build → automated deployment)")
-	fmt.Println("    [3] git-manual (Git repo only, no CI/CD workflow provided)")
-	fmt.Println("\n  Direct deployment modes:")
-	fmt.Println("    [4] direct-serverbuild (upload source → build on server)")
-	fmt.Println("    [5] direct-localbuild (build locally → upload image)")
-	fmt.Print("\nSelect deployment mode [1-5]: ")
-	
-	modeInput, _ := reader.ReadString('\n')
-	modeInput = strings.TrimSpace(modeInput)
-	
 	var deploymentMode string
-	switch modeInput {
-	case "1":
-		deploymentMode = "git-images"
+	for {
+		fmt.Println("\n📦 Project Type / Deployment Mode:")
+		fmt.Println("  Git-based modes:")
+		fmt.Println("    [1] git-images (GitHub Actions → GHCR → automated deployment via graft-hook)")
+		fmt.Println("    [2] git-repo-serverbuild (GitHub Actions → server build → automated deployment)")
+		fmt.Println("    [3] git-manual (Git repo only, no CI/CD workflow provided)")
+		fmt.Println("\n  Direct deployment modes:")
+		fmt.Println("    [4] direct-serverbuild (upload source → build on server)")
+		fmt.Println("    [5] direct-localbuild (build locally → upload image)")
+		fmt.Print("\nSelect deployment mode [1-5]: ")
+		
+		modeInput, _ := reader.ReadString('\n')
+		modeInput = strings.TrimSpace(modeInput)
+		
+		switch modeInput {
+		case "1":
+			deploymentMode = "git-images"
+		case "2":
+			deploymentMode = "git-repo-serverbuild"
+		case "3":
+			deploymentMode = "git-manual"
+		case "4":
+			deploymentMode = "direct-serverbuild"
+		case "5":
+			deploymentMode = "direct-localbuild"
+		default:
+			fmt.Println("Invalid selection, defaulting to direct-serverbuild")
+			deploymentMode = "direct-serverbuild"
+		}
+
+		// Git validation for git modes
+		if strings.HasPrefix(deploymentMode, "git") {
+			// Check for git repository and remote origin
+			if _, err := os.Stat(".git"); os.IsNotExist(err) {
+				fmt.Println("\n❌ Error: No .git directory found in project root.")
+				fmt.Println("   Git modes require a git repository.")
+				continue
+			}
+			
+			// Get remote origin
+			cmd := exec.Command("git", "remote", "get-url", "origin")
+			out, err := cmd.Output()
+			if err != nil {
+				fmt.Println("\n❌ Error: No git remote 'origin' found.")
+				fmt.Println("   Git modes require a remote 'origin' for deployment.")
+				continue
+			}
+			gitRemote := strings.TrimSpace(string(out))
+			fmt.Printf("✅ Found git remote: %s\n", gitRemote)
+		}
+		break
+	}
+
+	switch deploymentMode {
+	case "git-images":
 		fmt.Println("\n✅ Git-based image deployment selected (GHCR)")
 		fmt.Println("\n📦 This mode uses GitHub Actions to build images and push to GHCR.")
 		fmt.Println("\n⚠️  IMPORTANT: Requires graft-hook webhook service for automated deployment")
-		fmt.Println("   The graft-hook service listens for GitHub webhooks and automatically")
-		fmt.Println("   deploys your project when new images are pushed to GHCR.")
-		fmt.Println("\n   After 'graft init', you'll need to:")
-		fmt.Println("   1. Set up GitHub Actions workflow (see examples/github-actions-workflow.yml)")
-		fmt.Println("   2. Deploy graft-hook to your server")
-		fmt.Println("   3. Configure GitHub webhook in your repository")
-		fmt.Println("   4. Set up GHCR authentication on the server")
-		fmt.Println("\n   See documentation: graft-hook setup guide")
-	case "2":
-		deploymentMode = "git-repo-serverbuild"
+	case "git-repo-serverbuild":
 		fmt.Println("\n✅ Git-based server build deployment selected")
 		fmt.Println("\n📦 This mode uses GitHub Actions to trigger server-side builds.")
-		fmt.Println("\n   Workflow:")
-		fmt.Println("   1. GitHub Actions triggers on push")
-		fmt.Println("   2. Webhook notifies server to pull latest code")
-		fmt.Println("   3. Server builds Docker images from source")
-		fmt.Println("   4. Services automatically restart with new build")
-		fmt.Println("\n   After 'graft init', you'll need to:")
-		fmt.Println("   1. Set up GitHub Actions workflow (see examples/github-actions-workflow.yml)")
-		fmt.Println("   2. Configure graft-hook on server for build triggers")
-		fmt.Println("   3. Ensure server has access to your Git repository")
-		fmt.Println("\n   Automated deployment via webhook.")
-	case "3":
-		deploymentMode = "git-manual"
+	case "git-manual":
 		fmt.Println("\n✅ Git manual deployment selected")
 		fmt.Println("\n📦 This mode sets up the server for Git-based deployment without CI/CD.")
-		fmt.Println("\n   Workflow:")
-		fmt.Println("   1. You manage your Git repository independently")
-		fmt.Println("   2. Run 'graft sync' when ready to deploy")
-		fmt.Println("   3. Server pulls from your Git repository")
-		fmt.Println("   4. Server builds and deploys")
-		fmt.Println("\n   After 'graft init':")
-		fmt.Println("   1. Set up your Git repository")
-		fmt.Println("   2. Configure server access to repository (SSH keys, tokens)")
-		fmt.Println("   3. Run 'graft sync' to deploy")
-		fmt.Println("\n   No CI/CD workflow or webhook setup required.")
-	case "4":
-		deploymentMode = "direct-serverbuild"
+	case "direct-serverbuild":
 		fmt.Println("\n✅ Direct server build mode selected")
-		fmt.Println("   Source code will be uploaded to server and built there.")
-	case "5":
-		deploymentMode = "direct-localbuild"
+	case "direct-localbuild":
 		fmt.Println("\n✅ Direct local build mode selected")
-		fmt.Println("   Docker images will be built locally and uploaded to server.")
-	default:
-		fmt.Println("Invalid selection, defaulting to direct-serverbuild")
-		deploymentMode = "direct-serverbuild"
+	}
+
+	// Graft-Hook detection and deployment for automated modes
+	if deploymentMode == "git-images" || deploymentMode == "git-repo-serverbuild" || deploymentMode == "git-manual" {
+		if client != nil {
+			installHook := false
+			if deploymentMode == "git-manual" {
+				fmt.Print("\n❓ Do you want to install graft-hook for CI/CD automation? (y/n): ")
+				input, _ := reader.ReadString('\n')
+				installHook = strings.ToLower(strings.TrimSpace(input)) == "y"
+			} else {
+				// Check if already installed
+				if err := client.RunCommand("ls /opt/graft/webhook/docker-compose.yml", nil, nil); err != nil {
+					fmt.Println("\n🔍 graft-hook is not installed on the server.")
+					installHook = true
+				} else {
+					fmt.Println("\n✅ graft-hook is already installed on the server.")
+				}
+			}
+
+			if installHook {
+				fmt.Print("Enter domain for graft-hook (e.g. graft-hook.example.com): ")
+				hookDomain, _ := reader.ReadString('\n')
+				hookDomain = strings.TrimSpace(hookDomain)
+				
+				fmt.Println("🚀 Deploying graft-hook...")
+				hookCompose := fmt.Sprintf(`version: '3.8'
+services:
+  graft-hook:
+    image: ghcr.io/skssmd/graft-hook:latest
+    environment:
+      - configpath=/opt/graft/config/projects.json
+      - RUST_LOG=info
+    labels:
+      - "graft.mode=serverbuild"
+      - "traefik.enable=true"
+      - "traefik.http.routers.graft-hook.rule=Host(` + "`" + `%s` + "`" + `)"
+      - "traefik.http.routers.graft-hook.priority=1"
+      - "traefik.http.routers.graft-hook.service=graft-hook-service"
+      - "traefik.http.services.graft-hook-service.loadbalancer.server.port=3000"
+      - "traefik.http.routers.graft-hook.entrypoints=websecure"
+      - "traefik.http.routers.graft-hook.tls.certresolver=letsencrypt"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/graft:/opt/graft/
+    networks:
+      - graft-public
+    restart: always
+networks:
+  graft-public:
+    external: true`, hookDomain)
+
+				client.RunCommand("sudo mkdir -p /opt/graft/webhook && sudo chown $USER:$USER /opt/graft/webhook", nil, nil)
+				tmpFile := filepath.Join(os.TempDir(), "hook-compose.yml")
+				os.WriteFile(tmpFile, []byte(hookCompose), 0644)
+				client.UploadFile(tmpFile, "/opt/graft/webhook/docker-compose.yml")
+				os.Remove(tmpFile)
+				client.RunCommand("sudo docker compose -f /opt/graft/webhook/docker-compose.yml up -d", os.Stdout, os.Stderr)
+				fmt.Println("✅ graft-hook deployed.")
+			}
+		}
+	}
+
+	// Remote project directory setup
+	if client != nil {
+		remoteProjPath := fmt.Sprintf("/opt/graft/projects/%s", projName)
+		fmt.Printf("📂 Setting up remote project directory: %s\n", remoteProjPath)
+		client.RunCommand(fmt.Sprintf("sudo mkdir -p %s && sudo chown $USER:$USER %s", remoteProjPath, remoteProjPath), nil, nil)
+
+		if strings.HasPrefix(deploymentMode, "git") {
+			// Ensure git is installed
+			if err := client.RunCommand("git --version", nil, nil); err != nil {
+				fmt.Println("📦 Installing git on remote server...")
+				client.RunCommand("sudo yum install -y git || sudo apt-get install -y git", os.Stdout, os.Stderr)
+			}
+
+			// Get remote origin
+			cmd := exec.Command("git", "remote", "get-url", "origin")
+			out, _ := cmd.Output()
+			gitRemote := strings.TrimSpace(string(out))
+
+			// Init git repo on server
+			fmt.Println("🔧 Initializing git repository on server...")
+			client.RunCommand(fmt.Sprintf("cd %s && git init && git remote add origin %s", remoteProjPath, gitRemote), os.Stdout, os.Stderr)
+		}
 	}
 
 	// Save local config
@@ -717,26 +927,111 @@ func runSync(args []string) {
 		return
 	}
 
+	meta, err := config.LoadProjectMetadata()
+	if err != nil {
+		fmt.Println("Warning: Could not load project metadata. Run 'graft init' first.")
+	} else {
+		p.DeploymentMode = meta.DeploymentMode
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	// New Initialization flow for Git modes
+	if !meta.Initialized && strings.HasPrefix(meta.DeploymentMode, "git") {
+		fmt.Println("\n📦 Git-based project detected. Setting up CI/CD workflows...")
+		
+		remoteURL, err := git.GetRemoteURL(".", "origin")
+		if err != nil {
+			fmt.Printf("Error: Could not get git remote URL: %v\n", err)
+			return
+		}
+
+		// Generate Workflows
+		if err := deploy.GenerateWorkflows(p, remoteURL, meta.DeploymentMode ); err != nil {
+			fmt.Printf("Error generating workflows: %v\n", err)
+			return
+		}
+		
+		fmt.Println("✅ GitHub Workflows created in .github/workflows/")
+
+		// Ask for compose generation and transfer
+		
+		
+			// Save project to ensure graft-compose.yml is local
+			if err := p.Save("."); err != nil {
+				fmt.Printf("Error saving project: %v\n", err)
+				return
+			}
+			
+			client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				return
+			}
+			defer client.Close()
+
+			fmt.Println("📤 Transferring files to server...")
+			if err := deploy.SyncComposeOnly(client, p, true, os.Stdout, os.Stderr,true, true); err != nil {
+				fmt.Printf("Error syncing compose: %v\n", err)
+			}
+			
+			// Update initialized status
+			meta.Initialized = true
+			config.SaveProjectMetadata(meta)
+
+			fmt.Println("\n✅ Project initialized! Next steps:")
+			fmt.Println("1. Review .github/workflows/ci.yml and deploy.yml")
+			if meta.DeploymentMode == "git-images" {
+				fmt.Println("2. Your server is set up to receive images from GHCR.")
+			}
+			fmt.Println("3. Run: git add . && git commit -m \"Initial Graft setup\" && git push")
+			fmt.Println("\n🚀 Your project is ready to be updated with git push!")
+			return
+	
+	} else if meta.Initialized {
+		fmt.Printf("\n⚠️  Project '%s' is already initialized.\n", p.Name)
+		
+		fmt.Print("❓ Do you want to re-generate and transfer the compose file? (y/n): ")
+		ansCompose, _ := reader.ReadString('\n')
+		
+		fmt.Print("❓ Do you want to transfer the environment files (env/)? (y/n): ")
+		ansEnv, _ := reader.ReadString('\n')
+
+		doCompose := strings.TrimSpace(strings.ToLower(ansCompose)) == "y"
+		doEnv := strings.TrimSpace(strings.ToLower(ansEnv)) == "y"
+
+		if doCompose || doEnv {
+			client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				return
+			}
+			defer client.Close()
+
+			if err := deploy.SyncComposeOnly(client, p, true, os.Stdout, os.Stderr ,doCompose, doEnv ); err != nil {
+				fmt.Printf("Error during sync: %v\n", err)
+				return
+			}
+			
+			fmt.Println("\n✅ Completed! Please do git push to update/restart the server through CI/CD or run native docker commands with graft.")
+			return
+		}
+	}
+
+	// For automated git modes, don't allow manual sync as it should be done via git push
+	if meta.Initialized && (meta.DeploymentMode == "git-images" || meta.DeploymentMode == "git-repo-serverbuild") {
+		fmt.Printf("\nℹ️  Project '%s' is in Git-automated mode (%s).\n", p.Name, meta.DeploymentMode)
+		fmt.Println("🚀 Please do 'git push' to trigger deployment via GitHub Actions and webhooks.")
+		fmt.Println("💡 To force a manual sync (upload source), use a different deployment mode with 'graft mode'.")
+		return
+	}
+
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
 	defer client.Close()
-
-	// Load project metadata
-	meta, err := config.LoadProjectMetadata()
-	if err != nil {
-		fmt.Printf("Warning: Could not load project metadata: %v\n", err)
-	}
-
-	// Handle Git-based deployment modes
-	if shouldReturn, err := handleGitMode(client, meta, localFile); err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	} else if shouldReturn {
-		return
-	}
 
 	if serviceName != "" {
 		fmt.Printf("🎯 Syncing service: %s\n", serviceName)
@@ -813,7 +1108,7 @@ func runSyncCompose(args []string) {
 		fmt.Println("📄 Heave sync enabled (config upload only)")
 	}
 
-	err = deploy.SyncComposeOnly(client, p, heave, os.Stdout, os.Stderr)
+	err = deploy.SyncComposeOnly(client, p, heave, os.Stdout, os.Stderr,true, true)
 	if err != nil {
 		fmt.Printf("Error during sync: %v\n", err)
 		return
@@ -885,6 +1180,30 @@ func runDockerCompose(args []string) {
 	}
 }
 
+func runHook(args []string) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Println("Error: No config found.")
+		return
+	}
+
+
+
+	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	// Build the docker compose command
+	cmdStr := strings.Join(args, " ")
+	composeCmd := fmt.Sprintf("cd %s && sudo docker compose %s", "/opt/graft/webhook/", cmdStr)
+	
+	if err := client.RunCommand(composeCmd, os.Stdout, os.Stderr); err != nil {
+		fmt.Printf("\nError: %v\n", err)
+	}
+}
 func promptNewServer(reader *bufio.Reader) (string, int, string, string) {
 	fmt.Print("Host IP: ")
 	host, _ := reader.ReadString('\n')

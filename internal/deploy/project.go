@@ -331,5 +331,241 @@ func EnsureGitignore(dir string) error {
 			return fmt.Errorf("could not update .gitignore: %v", err)
 		}
 	}
+	if modified {
+		if err := os.WriteFile(gitignorePath, []byte(newContent), 0644); err != nil {
+			return fmt.Errorf("could not update .gitignore: %v", err)
+		}
+	}
+	return nil
+}
+
+// GenerateWorkflows creates .github/workflows directory and populates it with CI and Deploy templates
+func GenerateWorkflows(p *Project, remoteURL string, mode string) error {
+	fmt.Println("received workflow mode: ", mode)
+	workflowsDir := filepath.Join(".github", "workflows")
+	if err := os.MkdirAll(workflowsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create workflows directory: %v", err)
+	}
+
+	// Extract owner and repo from remote URL
+	// Handles:
+	// https://github.com/owner/repo.git
+	// git@github.com:owner/repo.git
+	ownerRepo := ""
+	if strings.HasPrefix(remoteURL, "https://") {
+		parts := strings.Split(strings.TrimSuffix(remoteURL, ".git"), "/")
+		if len(parts) >= 2 {
+			ownerRepo = parts[len(parts)-2] + "/" + parts[len(parts)-1]
+		}
+	} else if strings.HasPrefix(remoteURL, "git@") {
+		parts := strings.Split(strings.TrimSuffix(remoteURL, ".git"), ":")
+		if len(parts) >= 2 {
+			ownerRepo = parts[1]
+		}
+	}
+
+	if ownerRepo == "" {
+		ownerRepo = "username/repository" // fallback
+	}
+
+	// 1. Generate Deploy Workflow (for all git modes)
+	if strings.HasPrefix(mode, "git") {
+		var triggers string
+		var condition string
+		deployType := "image"
+		
+		if mode == "git-images" {
+			triggers = `  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types:
+      - completed`
+			condition = "if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}"
+		} else {
+			triggers = `  push:
+    branches: [ main, develop ]`
+			condition = ""
+			if mode == "git-repo-serverbuild" {
+				deployType = "repo"
+			}
+		}
+
+		deployTemplate := `name: Deploy
+
+on:
+%s
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy via Webhook
+    runs-on: ubuntu-latest
+    %s
+    environment: CI CD
+    
+    steps:
+      - name: Send Webhook Request
+        run: |
+          curl -X POST https://graft-hook.example.com/webhook \
+            -H "Content-Type: application/json" \
+            -d '{
+              "project": "%%s",
+              "repository": "${{ github.event.repository.name }}",
+              "token": "${{ secrets.GITHUB_TOKEN }}",
+              "user": "${{ github.actor }}",
+              "type": "%s",
+              "registry": "ghcr.io"
+            }'
+`
+		deployPath := filepath.Join(workflowsDir, "deploy.yml")
+		deployContent := fmt.Sprintf(deployTemplate, triggers, condition, deployType)
+		// Now format the project name into the content
+		deployContent = fmt.Sprintf(deployContent, p.Name)
+		
+		if err := os.WriteFile(deployPath, []byte(deployContent), 0644); err != nil {
+			return fmt.Errorf("failed to write deploy workflow: %v", err)
+		}
+	}
+
+	// 2. Generate CI Workflow (only for git-images)
+	if mode == "git-images" {
+		ciTemplate := `name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+%s
+`
+		jobsContent := ""
+		
+		// Parse compose file to see which services have builds
+		compose, err := ParseComposeFile("graft-compose.yml")
+		if err != nil {
+			return fmt.Errorf("failed to parse compose for workflow generation: %v", err)
+		}
+
+		for name, svc := range compose.Services {
+			if svc.Build == nil {
+				continue
+			}
+
+			imageName := ownerRepo + "/" + name
+			context := svc.Build.Context
+			dockerfile := svc.Build.Dockerfile
+			if dockerfile == "" {
+				dockerfile = "Dockerfile"
+			}
+
+			job := fmt.Sprintf(`  build-%s:
+    name: Build %s Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/%s
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: %s
+          file: %s/%s
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+`, name, name, imageName, context, context, dockerfile)
+			jobsContent += job + "\n"
+		}
+
+		if jobsContent != "" {
+			ciPath := filepath.Join(workflowsDir, "ci.yml")
+			ciContent := fmt.Sprintf(ciTemplate, jobsContent)
+			if err := os.WriteFile(ciPath, []byte(ciContent), 0644); err != nil {
+				return fmt.Errorf("failed to write ci workflow: %v", err)
+			}
+		}
+
+		// 3. Generate Cleanup Workflow (only for git-images)
+		cleanupTemplate := `name: Cleanup Old Images
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+%s
+`
+		repoName := ""
+		if parts := strings.Split(ownerRepo, "/"); len(parts) >= 2 {
+			repoName = parts[1]
+		} else {
+			repoName = ownerRepo // fallback
+		}
+
+		cleanupSteps := ""
+		for name := range compose.Services {
+			if compose.Services[name].Build == nil {
+				continue
+			}
+			packageName := fmt.Sprintf("%s/%s", repoName, name)
+			step := fmt.Sprintf(`      - name: Delete old versions of %s
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: '%s'
+          package-type: 'container'
+          min-versions-to-keep: 3
+`, name, packageName)
+			cleanupSteps += step
+		}
+
+		if cleanupSteps != "" {
+			cleanupPath := filepath.Join(workflowsDir, "cleanup.yml")
+			cleanupContent := fmt.Sprintf(cleanupTemplate, cleanupSteps)
+			if err := os.WriteFile(cleanupPath, []byte(cleanupContent), 0644); err != nil {
+				return fmt.Errorf("failed to write cleanup workflow: %v", err)
+			}
+		}
+	}
+
 	return nil
 }

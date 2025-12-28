@@ -20,27 +20,37 @@ Graft uses a **hybrid command architecture**:
 ## Project Commands
 
 ### `graft init`
-Initialize a new Graft project in the current directory and Configure server connection settings.
-
+Initialize a new Graft project in the current directory and configure server connection settings.
 
 ```bash
 graft init [-f, --force]
 ```
 
-**Interactive Setup:**
+**Interactive Setup Flow:**
 1. **Server Selection**: Select an existing server from your global registry or type `/new`.
-2. **Conflict Check**: Graft checks for existing projects with the same name:
-   - **Locally**: If found in your global registry, it prompts you with the existing path/host and asks for confirmation (y/n).
-   - **Remotely**: It checks the server registry. If found, it will abort unless `-f` or `--force` is used.
-2. **Host Configuration** (if new): Enter IP, port, user, and key path.
+2. **Host Status Check**: Automatically checks if the remote host is initialized.
+   - If `/opt/graft` is missing, prompts: `⚠️  Host is not initialized. Do you want to initialize the host? (y/n)`.
+   - If "y", runs the complete host initialization process (`InitHost`).
 3. **Registry Name** (if new): Provide a unique name to save the server globally.
 4. **Project Name**: Name of your project (normalized to lowercase/underscores).
-5. **Domain Name**: The domain Traefik will use for routing.
+5. **Conflict Check**: Graft checks for existing projects with the same name:
+   - **Locally**: If found, it prompts for confirmation.
+   - **Remotely**: If found on the server, it will abort unless `-f` or `--force` is used.
+6. **Domain Name**: The domain used for Traefik routing.
+7. **Deployment Mode Selection**: Select from 5 modes (3 Git-based, 2 Direct).
+   - For **Git-based modes**, Graft validates that a local git repository exists with a remote `origin`.
+8. **Automated Service Setup**:
+   - For automated Git modes (`git-images`, `git-repo-serverbuild`), Graft checks if the `graft-hook` service is running on the server.
+   - If missing, it prompts for a webhook domain and deploys `graft-hook` automatically.
+9. **Remote Environment Setup**:
+   - For **Git modes**, Graft creates the remote project directory, ensures `git` is installed on the server, and initializes a git repo with your local remote.
+   - For **Direct modes**, it simply creates the project directory.
 
 **Creates:**
 - `graft-compose.yml` - Docker Compose configuration
-- `.graft/config.json` - Local server config (if using --local)
-- `.graft/project.json` - Project metadata (name, remote path)
+- `.graft/config.json` - Local server config
+- `.graft/project.json` - Project metadata (name, remote path, deployment mode)
+- `examples/github-actions-workflow.yml` - (For Git modes) Workflow template
 
 **Remote Structure:**
 ```
