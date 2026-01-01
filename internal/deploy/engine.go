@@ -769,3 +769,60 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 	fmt.Fprintln(stdout, "✅ Deployment complete!")
 	return nil
 }
+
+// ExtractTraefikHosts extracts all Host() rules from Traefik labels
+func ExtractTraefikHosts(labels []string) []string {
+	var hosts []string
+	
+	for _, label := range labels {
+		// Look for traefik.http.routers.*.rule labels
+		if strings.Contains(label, "traefik.http.routers.") && strings.Contains(label, ".rule=") {
+			// Extract the value after .rule=
+			parts := strings.SplitN(label, ".rule=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			
+			rule := parts[1]
+			
+			// Extract Host(`domain.com`) patterns
+			// Support both Host(`...`) and Host("...")
+			for {
+				startIdx := strings.Index(rule, "Host(")
+				if startIdx == -1 {
+					break
+				}
+				
+				// Find the matching closing parenthesis
+				rule = rule[startIdx+5:] // Skip "Host("
+				
+				var host string
+				if strings.HasPrefix(rule, "`") {
+					// Backtick format: Host(`domain.com`)
+					endIdx := strings.Index(rule[1:], "`")
+					if endIdx == -1 {
+						break
+					}
+					host = rule[1 : endIdx+1]
+					rule = rule[endIdx+2:]
+				} else if strings.HasPrefix(rule, "\"") {
+					// Quote format: Host("domain.com")
+					endIdx := strings.Index(rule[1:], "\"")
+					if endIdx == -1 {
+						break
+					}
+					host = rule[1 : endIdx+1]
+					rule = rule[endIdx+2:]
+				} else {
+					break
+				}
+				
+				if host != "" {
+					hosts = append(hosts, host)
+				}
+			}
+		}
+	}
+	
+	return hosts
+}

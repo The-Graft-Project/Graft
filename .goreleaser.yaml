@@ -35,16 +35,21 @@ snapshot:
 
 release:
   header: |
-    ## Major Feature Update with Graft  🚀
+    ## Feature Update with Graft  🚀
     
+    ### V2.1 Highlights:
+    1. **Cloudflare API Integration**: Automated DNS zone mapping based on Traefik host labels.
+    2. **Cloudflare Zone Registry**: Manage multiple Cloudflare accounts and zones with an interactive selection menu.
+    3. **Bug Fixes**: Improved domain detection and duplicate record handling.
+
+    ### V2 Highlights:
     This release introduces significant enhancements to Graft, moving from basic local-to-server deployments to a more robust CI/CD-driven workflow using GitHub Actions and our new `graft-hook` service.
     
-    ### Key Highlights:
     1. **Git Remote Modes**: Move away from direct local-to-server channels. Deployments now go through GitHub Workflows and CI/CD channels.
     2. **Graft-Hook**: A new webhook service personalized specifically for Graft-based servers, maintaining a zero-config solution with proper security.
     3. **Automated GitHub Workflows**: Graft now generates production-ready workflows automatically from your `graft-compose.yml` context.
     4. **Enhanced Monitoring**: Easy CLI-based monitoring for `graft-hook`, including real-time build error logs.
-    5. **Bug Fixes & UX**: Numerous performance improvements and user experience refinements.
+  
   footer: |
     ---
     Released by **skssmd** using [GoReleaser](https://github.com/goreleaser/goreleaser).

@@ -163,6 +163,18 @@ func main() {
 		runPull(registryContext, args[1])
 	case "mode":
 		runMode()
+	case "map":
+		if len(args) < 2 {
+			runMap([]string{}) // Map all services
+		} else if args[1] == "service" {
+			if len(args) < 3 {
+				fmt.Println("Usage: graft map service <service-name>")
+				return
+			}
+			runMapService(args[2])
+		} else {
+			runMap(args[1:])
+		}
 	default:
 		// Handle the --pull flag as requested in the specific format
 		// foundPull := false
@@ -204,6 +216,8 @@ func printUsage() {
 	fmt.Println("  sync [service] [-h]       Deploy project to server")
 	fmt.Println("  logs <service>            Stream service logs")
 	fmt.Println("  mode                      Change project deployment mode")
+	fmt.Println("  map                       Map all service domains to Cloudflare DNS")
+	fmt.Println("  map service <name>        Map specific service domain to Cloudflare DNS")
 }
 func runMode() {
 	reader := bufio.NewReader(os.Stdin)

@@ -29,9 +29,17 @@ type InfraConfig struct {
 	RedisPort        string `json:"redis_port,omitempty"`
 }
 
+type CloudflareConfig struct {
+	APIToken string `json:"api_token,omitempty"`
+	ZoneID   string `json:"zone_id,omitempty"`
+	Domain   string `json:"domain,omitempty"`
+}
+
 type GraftConfig struct {
-	Server ServerConfig `json:"server"`
-	Infra  InfraConfig  `json:"infra,omitempty"`
+	Server             ServerConfig                `json:"server"`
+	Infra              InfraConfig                 `json:"infra,omitempty"`
+	Cloudflare         CloudflareConfig            `json:"cloudflare,omitempty"`
+	CloudflareAccounts map[string]CloudflareConfig `json:"cloudflare_accounts,omitempty"`
 }
 
 type GlobalConfig struct {
@@ -57,13 +65,39 @@ func LoadConfig() (*GraftConfig, error) {
 	// Try local first
 	localPath := GetLocalConfigPath()
 	cfg, err := loadFile(localPath)
-	if err == nil {
-		return cfg, nil
+	
+	// Try global if local fails or if local is missing Cloudflare
+	globalPath := GetGlobalConfigPath()
+	gCfg, gErr := loadFile(globalPath)
+
+	if err != nil {
+		return gCfg, gErr
 	}
 
-	// Try global
-	globalPath := GetGlobalConfigPath()
-	return loadFile(globalPath)
+	// Merge global cloudflare info if local is missing it
+	if gErr == nil && gCfg != nil {
+		if cfg.Cloudflare.APIToken == "" {
+			cfg.Cloudflare.APIToken = gCfg.Cloudflare.APIToken
+		}
+		if cfg.Cloudflare.ZoneID == "" {
+			cfg.Cloudflare.ZoneID = gCfg.Cloudflare.ZoneID
+		}
+		if cfg.Cloudflare.Domain == "" {
+			cfg.Cloudflare.Domain = gCfg.Cloudflare.Domain
+		}
+
+		// Merge accounts map
+		if cfg.CloudflareAccounts == nil {
+			cfg.CloudflareAccounts = make(map[string]CloudflareConfig)
+		}
+		for k, v := range gCfg.CloudflareAccounts {
+			if _, exists := cfg.CloudflareAccounts[k]; !exists {
+				cfg.CloudflareAccounts[k] = v
+			}
+		}
+	}
+
+	return cfg, nil
 }
 
 func loadFile(path string) (*GraftConfig, error) {
@@ -133,6 +167,26 @@ func SaveConfig(cfg *GraftConfig, local bool) error {
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+func SaveGlobalCloudflare(apiToken, zoneID, domain string) error {
+	globalPath := GetGlobalConfigPath()
+	cfg, err := loadFile(globalPath)
+	if err != nil {
+		cfg = &GraftConfig{}
+	}
+	
+	if cfg.CloudflareAccounts == nil {
+		cfg.CloudflareAccounts = make(map[string]CloudflareConfig)
+	}
+
+	cfg.CloudflareAccounts[domain] = CloudflareConfig{
+		APIToken: apiToken,
+		ZoneID:   zoneID,
+		Domain:   domain,
+	}
+	
+	return SaveConfig(cfg, false)
 }
 
 func SaveSecret(key, value string) error {

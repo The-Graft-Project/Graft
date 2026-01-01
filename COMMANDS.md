@@ -423,6 +423,109 @@ graft sync compose -h           # Upload only (no restart)
 
 ---
 
+## DNS Mapping Commands
+
+### `graft map`
+Automatically map all service domains to Cloudflare DNS records.
+
+```bash
+graft map
+```
+
+**What it does:**
+1. Parses `graft-compose.yml` to extract all Traefik `Host()` rules
+2. Detects the server's public IP address
+3. Prompts for Cloudflare API credentials (saved for future use)
+4. Verifies DNS ownership via Cloudflare API
+5. For each domain:
+   - Checks if DNS record exists
+   - Creates new A record if missing
+   - Prompts to update if existing record points to different IP
+6. Displays summary of changes
+
+**Requirements:**
+- Cloudflare API Token with DNS edit permissions
+- Zone ID for your domain
+- Services must have Traefik labels with `Host()` rules
+
+**Example:**
+```bash
+$ graft map
+
+🔍 Parsing docker-compose file...
+📋 Found 3 service(s) with domains:
+  - frontend: app.example.com, www.example.com
+  - backend: api.example.com
+  - admin: admin.example.com
+
+🌐 Detecting server IP...
+Detected IP: 203.0.113.42
+
+🔐 Cloudflare API Token: ****
+🔐 Zone ID: ****
+✅ Cloudflare credentials saved
+
+🔐 Verifying DNS ownership...
+✅ DNS ownership verified
+
+📍 Checking DNS records...
+  ✅ app.example.com → 203.0.113.42 (already correct)
+  ⚠️  www.example.com → 198.51.100.10 (exists, current IP)
+      Overwrite with 203.0.113.42? (y/n): y
+      ✅ Updated
+  ➕ api.example.com → Creating new record...
+      ✅ Created
+  ➕ admin.example.com → Creating new record...
+      ✅ Created
+
+✅ DNS mapping complete!
+  - 1 unchanged
+  - 1 updated
+  - 2 created
+```
+
+---
+
+### `graft map service <service-name>`
+Map DNS records for a specific service only.
+
+```bash
+graft map service backend
+graft map service frontend
+```
+
+**What it does:**
+Same as `graft map` but only processes the specified service.
+
+**Example:**
+```bash
+$ graft map service backend
+
+🔍 Mapping service: backend
+📋 Found domain(s): api.example.com
+
+🌐 Detecting server IP...
+Server IP: 203.0.113.42
+
+🔐 Verifying DNS ownership...
+✅ DNS ownership verified
+
+📍 Processing DNS records...
+➕ api.example.com → Creating new record...
+    ✅ Created: api.example.com → 203.0.113.42
+
+✅ DNS mapping complete for service: backend
+```
+
+**Benefits:**
+- ✅ Automates DNS record creation
+- ✅ Prevents manual DNS configuration errors
+- ✅ Saves Cloudflare credentials for future use
+- ✅ Safe overwrite prompts for existing records
+- ✅ Works with multiple domains per service
+
+---
+
 ## Monitoring Commands
 
 ### `graft logs <service>`
@@ -843,6 +946,8 @@ graft exec backend sh
 - `graft sync [service] [-h] [--git] [--branch <name>] [--commit <hash>]` - Deploy
 - `graft sync compose [-h]` - Update compose only
 - `graft logs <service>` - Stream logs
+- `graft map` - Map all service domains to Cloudflare DNS
+- `graft map service <name>` - Map specific service domain to Cloudflare DNS
 
 ### Passthrough Commands (via docker compose)
 - `graft ps` - Container status
