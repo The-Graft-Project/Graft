@@ -1550,12 +1550,35 @@ func runHostShell(commandArgs []string) {
 func runInfra(args []string) {
 	if len(args) < 2 {
 		fmt.Println("Usage: graft infra [db|redis] ports:<value>")
+		fmt.Println("       graft infra db backup")
+		fmt.Println("       graft infra reload")
 		return
 	}
 
 	typ := args[0]
 	if typ != "db" && typ != "redis" {
 		fmt.Println("Error: First argument must be 'db' or 'redis'")
+		return
+	}
+
+	// Handle backup subcommand
+	if typ == "db" && len(args) > 1 && args[1] == "backup" {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			fmt.Println("Error: No config found.")
+			return
+		}
+
+		client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer client.Close()
+
+		if err := infra.SetupDBBackup(client, cfg, os.Stdout, os.Stderr); err != nil {
+			fmt.Printf("Error setting up database backup: %v\n", err)
+		}
 		return
 	}
 
@@ -1569,6 +1592,7 @@ func runInfra(args []string) {
 
 	if portVal == "" {
 		fmt.Println("Usage: graft infra [db|redis] ports:<value> (use 'ports:null' to hide)")
+		fmt.Println("       graft infra db backup")
 		return
 	}
 

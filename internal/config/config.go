@@ -22,11 +22,20 @@ type ServerConfig struct {
 }
 
 type InfraConfig struct {
-	PostgresUser     string `json:"postgres_user"`
-	PostgresPassword string `json:"postgres_password"`
-	PostgresDB       string `json:"postgres_db"`
-	PostgresPort     string `json:"postgres_port,omitempty"`
-	RedisPort        string `json:"redis_port,omitempty"`
+	PostgresUser     string    `json:"postgres_user"`
+	PostgresPassword string    `json:"postgres_password"`
+	PostgresDB       string    `json:"postgres_db"`
+	PostgresPort     string    `json:"postgres_port,omitempty"`
+	RedisPort        string    `json:"redis_port,omitempty"`
+	S3               *S3Config `json:"s3,omitempty"`
+}
+
+type S3Config struct {
+	Endpoint  string `json:"endpoint,omitempty"`
+	Region    string `json:"region"`
+	Bucket    string `json:"bucket"`
+	AccessKey string `json:"access_key"`
+	SecretKey string `json:"secret_key"`
 }
 
 type CloudflareConfig struct {
