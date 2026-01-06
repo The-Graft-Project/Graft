@@ -147,6 +147,11 @@ curl -sSL https://raw.githubusercontent.com/skssmd/Graft/main/bin/install.sh | s
 powershell -ExecutionPolicy ByPass -Command "iwr -useb https://raw.githubusercontent.com/skssmd/Graft/main/bin/install.ps1 | iex"
 ```
 
+**Or via WinGet:**
+```bash
+winget install graft
+```
+
 ### From Source
 ```bash
 git clone https://github.com/skssmd/Graft
@@ -250,7 +255,7 @@ If you need Kubernetes, use Kubernetes. Graft is for everyone else who just want
 
 Planned features:
 - Dev/prod environment separation
-- Database backup automation (with S3/R2)
+- Database backup automation (with S3/R2) [Added-Experimental]
 - Rollback mechanism
 - Slack/Discord notifications
 - Health checks and monitoring

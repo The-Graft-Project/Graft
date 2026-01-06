@@ -26,6 +26,19 @@ func main() {
 
 	args := os.Args[1:]
 
+	// Handle version and help flags
+	if len(args) > 0 {
+		arg := args[0]
+		if arg == "-v" || arg == "--version" {
+			fmt.Println("v2.1.1")
+			return
+		}
+		if arg == "--help" {
+			printUsage()
+			return
+		}
+	}
+
 	// Handle target registry flag: graft -r registryname ...
 	var registryContext string
 	if args[0] == "-r" || args[0] == "--registry" {
@@ -204,6 +217,8 @@ func printUsage() {
 	fmt.Println("  -p, --project <name>      Run command in specific project context")
 	fmt.Println("  -r, --registry <name>     Target a specific server context")
 	fmt.Println("  -sh, --sh [cmd]           Execute shell command on target (or start SSH session)")
+	fmt.Println("  -v, --version             Show version information")
+	fmt.Println("  --help                    Show this help message")
 	fmt.Println("\nCommands:")
 	fmt.Println("  init [-f]                 Initialize a new project")
 	fmt.Println("  registry [ls|add|del]     Manage registered servers")
@@ -211,6 +226,7 @@ func printUsage() {
 	fmt.Println("  pull <project>            Pull/Clone project from remote")
 	fmt.Println("  host [init|clean|sh|self-destruct]  Manage current project's host context")
 	fmt.Println("  infra [db|redis] ports:<v> Change infra port mapping (null to hide)")
+	fmt.Println("  infra db backup           Setup automated database backups to S3")
 	fmt.Println("  infra reload              Pull and reload infrastructure services")
 	fmt.Println("  db/redis <name> init      Initialize shared infrastructure")
 	fmt.Println("  sync [service] [-h]       Deploy project to server")

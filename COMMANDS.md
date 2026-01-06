@@ -303,6 +303,28 @@ graft infra reload
 
 ---
 
+### `graft infra db backup`
+Schedule or run an automated database backup to an S3-compatible service.
+
+```bash
+graft infra db backup
+```
+
+**What it does:**
+- Interactively prompts for S3 credentials (if not configured).
+- Offers to setup a daily cron job (2 AM) for automated backups.
+- Generates and uploads a `backup.sh` script to the server.
+- Uses a Docker container (`amazon/aws-cli`) to perform the upload safely.
+- Optionally saves S3 credentials on the server for automated tasks.
+
+**Interactive Flow:**
+1. **S3 Config**: Provide Endpoint, Region, Bucket, Access Key, and Secret Key.
+2. **Scheduling**: Choose to enable daily backups via cron.
+3. **Save Info**: Choose to persist credentials on the server.
+4. **Immediate Backup**: Option to run the first backup immediately to verify setup.
+
+---
+
 ## Deployment Commands
 
 ### `graft sync`

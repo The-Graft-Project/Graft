@@ -40,8 +40,9 @@ release:
     ### V2.1 Highlights:
     1. **Cloudflare API Integration**: Automated DNS zone mapping based on Traefik host labels.
     2. **Cloudflare Zone Registry**: Manage multiple Cloudflare accounts and zones with an interactive selection menu.
-    3. **Bug Fixes**: Improved domain detection and duplicate record handling.
-
+    3. **Database Backup Automation(Infrastructure)**: Easily backup Infrastructure databases to S3/R2(Experimental).
+    4. **Bug Fixes**: Improved domain detection and duplicate record handling.
+    
     ### V2 Highlights:
     This release introduces significant enhancements to Graft, moving from basic local-to-server deployments to a more robust CI/CD-driven workflow using GitHub Actions and our new `graft-hook` service.
     
