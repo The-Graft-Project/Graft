@@ -30,7 +30,7 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.1.2")
+			fmt.Println("v2.1.3")
 			return
 		}
 		if arg == "--help" {
@@ -626,12 +626,16 @@ func runInit(args []string) {
 				input, _ := reader.ReadString('\n')
 				installHook = strings.ToLower(strings.TrimSpace(input)) == "y"
 			} else {
-				// Check if already installed
-				if err := client.RunCommand("ls /opt/graft/webhook/docker-compose.yml", nil, nil); err != nil {
+				// Check if already installed and restart if it exists
+				if err := client.RunCommand("cd /opt/graft/webhook && sudo docker compose down", nil, nil); err != nil {
 					fmt.Println("\n🔍 graft-hook is not installed on the server.")
 					installHook = true
 				} else {
-					fmt.Println("\n✅ graft-hook is already installed on the server.")
+				// Successfully stopped, now restart it
+				if err := client.RunCommand("cd /opt/graft/webhook && sudo docker compose up -d", os.Stdout, os.Stderr); err != nil {
+					fmt.Printf("\n⚠️  Warning: Failed to restart graft-hook: %v\n", err)
+				} else {
+					fmt.Println("\n✅ graft-hook restarted successfully.")
 					// Fetch existing hook URL from global registry if available
 					if srv, exists := gCfg.Servers[registryName]; exists {
 						currentHookURL = srv.GraftHookURL
@@ -642,6 +646,14 @@ func runInit(args []string) {
 							hookDomain = strings.TrimSpace(hookDomain)
 							if hookDomain != "" {
 								currentHookURL = fmt.Sprintf("https://%s", hookDomain)
+								// Save to global registry
+								srv.GraftHookURL = currentHookURL
+								gCfg.Servers[registryName] = srv
+								if err := config.SaveGlobalConfig(gCfg); err != nil {
+									fmt.Printf("⚠️  Warning: Could not save hook URL to global registry: %v\n", err)
+								} else {
+									fmt.Println("✅ Hook URL saved to global registry")
+								}
 							}
 						} else {
 							fmt.Printf("📍 Using hook URL from registry: %s\n", currentHookURL)
@@ -649,6 +661,7 @@ func runInit(args []string) {
 					} else {
 						fmt.Println("⚠️  Warning: Server not found in registry, cannot retrieve hook URL.")
 					}
+				}
 				}
 			}
 
