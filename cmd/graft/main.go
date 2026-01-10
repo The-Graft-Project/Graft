@@ -30,7 +30,7 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.1.1")
+			fmt.Println("v2.1.2")
 			return
 		}
 		if arg == "--help" {
@@ -635,6 +635,19 @@ func runInit(args []string) {
 					// Fetch existing hook URL from global registry if available
 					if srv, exists := gCfg.Servers[registryName]; exists {
 						currentHookURL = srv.GraftHookURL
+						if currentHookURL == "" {
+							fmt.Println("⚠️  Warning: graft-hook URL not found in registry.")
+							fmt.Print("Enter the graft-hook domain (e.g. graft-hook.example.com): ")
+							hookDomain, _ := reader.ReadString('\n')
+							hookDomain = strings.TrimSpace(hookDomain)
+							if hookDomain != "" {
+								currentHookURL = fmt.Sprintf("https://%s", hookDomain)
+							}
+						} else {
+							fmt.Printf("📍 Using hook URL from registry: %s\n", currentHookURL)
+						}
+					} else {
+						fmt.Println("⚠️  Warning: Server not found in registry, cannot retrieve hook URL.")
 					}
 				}
 			}
@@ -651,7 +664,6 @@ services:
     image: ghcr.io/skssmd/graft-hook:latest
     environment:
       - configpath=/opt/graft/config/projects.json
-      - RUST_LOG=info
     labels:
       - "graft.mode=serverbuild"
       - "traefik.enable=true"
@@ -684,7 +696,13 @@ networks:
 				if srv, exists := gCfg.Servers[registryName]; exists {
 					srv.GraftHookURL = currentHookURL
 					gCfg.Servers[registryName] = srv
-					config.SaveGlobalConfig(gCfg)
+					if err := config.SaveGlobalConfig(gCfg); err != nil {
+						fmt.Printf("⚠️  Warning: Could not save hook URL to global registry: %v\n", err)
+					} else {
+						fmt.Println("✅ Hook URL saved to global registry")
+					}
+				} else {
+					fmt.Printf("⚠️  Warning: Server '%s' not found in global registry, cannot save hook URL\n", registryName)
 				}
 			}
 		}

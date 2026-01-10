@@ -80,7 +80,7 @@ func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr 
 					}
 					
 					if ownerRepo != "" {
-						sPtr.Image = fmt.Sprintf("ghcr.io/%s/%s:latest", ownerRepo, sName)
+						sPtr.Image = fmt.Sprintf("ghcr.io/%s/%s:latest", strings.ToLower(ownerRepo), sName)
 						sPtr.Build = nil // Remove build context
 					}
 				}

@@ -186,7 +186,8 @@ services:
       # 1. Define the Router (The "Entry" rule)
       # serves %s/api/* and strips /api prefix
       - "traefik.http.routers.%s-backend.rule=Host(` + "`%s`" + `) && PathPrefix(` + "`/api`" + `)"
-      - "traefik.http.routers.%s-backend.priority=1"
+	  # Important to add more priority of any path based reverse proxy than the main "/" path to prevent path not found issues 
+	  - "traefik.http.routers.%s-backend.priority=10"
       
       # 2. Define the Service & Middleware
       - "traefik.http.middlewares.%s-backend-strip.stripprefix.prefixes=/api" 
