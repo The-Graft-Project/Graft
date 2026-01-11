@@ -139,6 +139,8 @@ func main() {
 		} else {
 			runSync(args[1:])
 		}
+	case "rollback":
+		runRollback()
 	case "registry":
 		if len(args) < 2 {
 			fmt.Println("Usage: graft registry [ls|add|del]")
@@ -230,6 +232,7 @@ func printUsage() {
 	fmt.Println("  infra reload              Pull and reload infrastructure services")
 	fmt.Println("  db/redis <name> init      Initialize shared infrastructure")
 	fmt.Println("  sync [service] [-h]       Deploy project to server")
+	fmt.Println("  rollback                  Restore project to a previous backup")
 	fmt.Println("  logs <service>            Stream service logs")
 	fmt.Println("  mode                      Change project deployment mode")
 	fmt.Println("  map                       Map all service domains to Cloudflare DNS")
@@ -330,6 +333,7 @@ func runInit(args []string) {
 
 	// Parse flags
 	var force bool
+	var input string
 	for _, arg := range args {
 		if arg == "-f" || arg == "--force" {
 			force = true
@@ -409,13 +413,13 @@ func runInit(args []string) {
 		if gCfg.Servers == nil {
 			gCfg.Servers = make(map[string]config.ServerConfig)
 		}
-		gCfg.Servers[registryName] = config.ServerConfig{
-			RegistryName: registryName,
-			Host:         host,
-			Port:         port,
-			User:         user,
-			KeyPath:      keyPath,
-		}
+		srv := gCfg.Servers[registryName]
+		srv.RegistryName = registryName
+		srv.Host = host
+		srv.Port = port
+		srv.User = user
+		srv.KeyPath = keyPath
+		gCfg.Servers[registryName] = srv
 		config.SaveGlobalConfig(gCfg)
 	}
 
@@ -437,6 +441,13 @@ func runInit(args []string) {
 			break
 		}
 		fmt.Println("❌ Invalid project name. Use only letters, numbers, and underscores.")
+	}
+
+	var currentHookURL string
+	if gCfg != nil {
+		if srv, exists := gCfg.Servers[registryName]; exists {
+			currentHookURL = srv.GraftHookURL
+		}
 	}
 
 	// Local Conflict Check
@@ -464,6 +475,9 @@ func runInit(args []string) {
 			fmt.Println("✅ Local overwrite confirmed.")
 		}
 	}
+
+	var versionToKeep int
+	var remoteProjects map[string]interface{}
 
 	// Remote Conflict Check
 	fmt.Printf("🔍 Checking for conflicts on remote server '%s'...\n", host)
@@ -508,7 +522,7 @@ func runInit(args []string) {
 		client.RunCommand("sudo mkdir -p /opt/graft/config && sudo chown $USER:$USER /opt/graft/config", os.Stdout, os.Stderr)
 
 		tmpFile := filepath.Join(os.TempDir(), "remote_projects.json")
-		var remoteProjects map[string]string // Name -> Path
+		remoteProjects = make(map[string]interface{})
 		
 		if err := client.DownloadFile(config.RemoteProjectsPath, tmpFile); err == nil {
 			data, _ := os.ReadFile(tmpFile)
@@ -516,34 +530,51 @@ func runInit(args []string) {
 			os.Remove(tmpFile)
 		}
 		
-		if remoteProjects == nil {
-			remoteProjects = make(map[string]string)
-		}
-
-		if existingPath, exists := remoteProjects[projName]; exists && !force {
-			fmt.Printf("❌ Conflict: Project '%s' already exists on this server at '%s'.\n", projName, existingPath)
+		if entry, exists := remoteProjects[projName]; exists && !force {
+			var path string
+			if s, ok := entry.(string); ok {
+				path = s
+			} else if m, ok := entry.(map[string]interface{}); ok {
+				path, _ = m["path"].(string)
+			}
+			fmt.Printf("❌ Conflict: Project '%s' already exists on this server at '%s'.\n", projName, path)
 			fmt.Println("👉 Use 'graft init -f' or '--force' to overwrite this registration.")
 			return
 		}
 
 		// Update remote registry (local record for now, will upload after boilerplate generation)
-		remoteProjects[projName] = fmt.Sprintf("/opt/graft/projects/%s", projName)
-		
-		// Pre-cache the remote project list for upload later
-		defer func() {
-			data, _ := json.MarshalIndent(remoteProjects, "", "  ")
-			tmpPath := filepath.Join(os.TempDir(), "upload_projects.json")
-			os.WriteFile(tmpPath, data, 0644)
-			client.UploadFile(tmpPath, config.RemoteProjectsPath)
-			os.Remove(tmpPath)
-			fmt.Println("✅ Remote project registry updated")
-		}()
-	}
+		remoteProjects[projName] = map[string]interface{}{
+			"path": fmt.Sprintf("/opt/graft/projects/%s", projName),
+		}
+		}
 
 	fmt.Print("Domain (e.g. app.example.com): ")
 	domain, _ := reader.ReadString('\n')
 	domain = strings.TrimSpace(domain)
-
+	
+	
+	// Rollback configurations
+	fmt.Println("\n🔄 Rollback configurations")
+	fmt.Print("Do you want to setup rollback configurations? (y/N): ")
+	input, _ = reader.ReadString('\n')
+	input = strings.ToLower(strings.TrimSpace(input))
+	if input == "y" || input == "yes" {
+		fmt.Print("Enter the number of versions to keep: ")
+		rollInput, _ := reader.ReadString('\n')
+		versionToKeep, _ = strconv.Atoi(strings.TrimSpace(rollInput))
+		if versionToKeep > 0 {
+			fmt.Printf("✅ Rollback configured to keep %d versions\n", versionToKeep)
+			// Update remote entry if available
+			if remoteProjects != nil {
+				if entry, ok := remoteProjects[projName].(map[string]interface{}); ok {
+					entry["rollback_backups"] = versionToKeep
+					remoteProjects[projName] = entry
+				}
+			}
+		}
+	} else {
+		fmt.Println("⏭️  Skipping rollback configurations")
+	}
 	// Deployment mode selection
 	var deploymentMode string
 	for {
@@ -554,8 +585,7 @@ func runInit(args []string) {
 		fmt.Println("    [3] git-manual (Git repo only, no CI/CD workflow provided)")
 		fmt.Println("\n  Direct deployment modes:")
 		fmt.Println("    [4] direct-serverbuild (upload source → build on server)")
-		fmt.Println("    [5] direct-localbuild (build locally → upload image)")
-		fmt.Print("\nSelect deployment mode [1-5]: ")
+		fmt.Print("\nSelect deployment mode [1-4]: ")
 		
 		modeInput, _ := reader.ReadString('\n')
 		modeInput = strings.TrimSpace(modeInput)
@@ -569,8 +599,7 @@ func runInit(args []string) {
 			deploymentMode = "git-manual"
 		case "4":
 			deploymentMode = "direct-serverbuild"
-		case "5":
-			deploymentMode = "direct-localbuild"
+		
 		default:
 			fmt.Println("Invalid selection, defaulting to direct-serverbuild")
 			deploymentMode = "direct-serverbuild"
@@ -616,8 +645,17 @@ func runInit(args []string) {
 		fmt.Println("\n✅ Direct local build mode selected")
 	}
 
+	// Update remote registry before hook detection/restart to ensure new config is loaded
+	if client != nil && remoteProjects != nil {
+		data, _ := json.MarshalIndent(remoteProjects, "", "  ")
+		tmpPath := filepath.Join(os.TempDir(), "upload_projects.json")
+		os.WriteFile(tmpPath, data, 0644)
+		client.UploadFile(tmpPath, config.RemoteProjectsPath)
+		os.Remove(tmpPath)
+		fmt.Println("✅ Remote project registry updated")
+	}
+
 	// Graft-Hook detection and deployment for automated modes
-	var currentHookURL string
 	if deploymentMode == "git-images" || deploymentMode == "git-repo-serverbuild" || deploymentMode == "git-manual" {
 		if client != nil {
 			installHook := false
@@ -638,7 +676,9 @@ func runInit(args []string) {
 					fmt.Println("\n✅ graft-hook restarted successfully.")
 					// Fetch existing hook URL from global registry if available
 					if srv, exists := gCfg.Servers[registryName]; exists {
-						currentHookURL = srv.GraftHookURL
+						if srv.GraftHookURL != "" {
+							currentHookURL = srv.GraftHookURL
+						}
 						if currentHookURL == "" {
 							fmt.Println("⚠️  Warning: graft-hook URL not found in registry.")
 							fmt.Print("Enter the graft-hook domain (e.g. graft-hook.example.com): ")
@@ -750,6 +790,7 @@ networks:
 		Server: config.ServerConfig{
 			RegistryName: registryName,
 			Host:         host, Port: port, User: user, KeyPath: keyPath,
+			GraftHookURL: currentHookURL,
 		},
 	}
 	config.SaveConfig(cfg, true) // local
@@ -761,10 +802,11 @@ networks:
 
 	// Save project metadata
 	meta := &config.ProjectMetadata{
-		Name:           projName,
-		RemotePath:     fmt.Sprintf("/opt/graft/projects/%s", projName),
-		DeploymentMode: deploymentMode,
-		GraftHookURL:   currentHookURL,
+		Name:            projName,
+		RemotePath:      fmt.Sprintf("/opt/graft/projects/%s", projName),
+		DeploymentMode:  deploymentMode,
+		GraftHookURL:    currentHookURL,
+		RollbackBackups: versionToKeep,
 	}
 	if err := config.SaveProjectMetadata(meta); err != nil {
 		fmt.Printf("Warning: Could not save project metadata: %v\n", err)
@@ -806,7 +848,16 @@ func runHostInit() {
 	gCfg, _ := config.LoadGlobalConfig()
 	if gCfg != nil {
 		if gCfg.Servers == nil { gCfg.Servers = make(map[string]config.ServerConfig) }
-		gCfg.Servers[cfg.Server.RegistryName] = cfg.Server
+		srv := gCfg.Servers[cfg.Server.RegistryName]
+		srv.RegistryName = cfg.Server.RegistryName
+		srv.Host = cfg.Server.Host
+		srv.Port = cfg.Server.Port
+		srv.User = cfg.Server.User
+		srv.KeyPath = cfg.Server.KeyPath
+		if cfg.Server.GraftHookURL != "" {
+			srv.GraftHookURL = cfg.Server.GraftHookURL
+		}
+		gCfg.Servers[cfg.Server.RegistryName] = srv
 		config.SaveGlobalConfig(gCfg)
 	}
 
@@ -1007,6 +1058,7 @@ func runSync(args []string) {
 		fmt.Println("Warning: Could not load project metadata. Run 'graft init' first.")
 	} else {
 		p.DeploymentMode = meta.DeploymentMode
+		p.RollbackBackups = meta.RollbackBackups
 	}
 
 	reader := bufio.NewReader(os.Stdin)
@@ -1828,4 +1880,91 @@ func runHostSelfDestruct() {
 	fmt.Println("\nThe server has been cleaned of all Graft infrastructure.")
 	fmt.Println("Docker and Docker Compose remain installed.")
 	fmt.Println("\n💡 You can run 'graft host init' to set up a fresh environment.")
+}
+func runRollback() {
+	meta, err := config.LoadProjectMetadata()
+	if err != nil {
+		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
+		return
+	}
+
+	if meta.RollbackBackups <= 0 {
+		fmt.Println("❌ Rollback is not configured for this project. Setup rollbacks during 'graft init' or update your project configuration.")
+		return
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Println("Error: No config found.")
+		return
+	}
+
+	fmt.Printf("🔍 Connecting to %s (%s)...\n", cfg.Server.RegistryName, cfg.Server.Host)
+	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	backupBase := fmt.Sprintf("/opt/graft/backup/%s", meta.Name)
+	// List directories in backup path, newest first
+	out, err := client.GetCommandOutput(fmt.Sprintf("sudo ls -1dt %s/* 2>/dev/null", backupBase))
+	if err != nil || strings.TrimSpace(out) == "" {
+		fmt.Println("❌ No backups found on server.")
+		return
+	}
+
+	backups := strings.Split(strings.TrimSpace(out), "\n")
+	fmt.Println("\n📦 Available Backups (Newest First):")
+	var choices []string
+	for i, p := range backups {
+		timestamp := filepath.Base(p)
+		formatted := formatTimestamp(timestamp)
+		fmt.Printf("  [%d] %s\n", i+1, formatted)
+		choices = append(choices, timestamp)
+	}
+
+	fmt.Printf("\nSelect a version to rollback to [1-%d] (or enter to cancel): ", len(choices))
+	reader := bufio.NewReader(os.Stdin)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input == "" {
+		fmt.Println("❌ Rollback cancelled.")
+		return
+	}
+
+	choice, err := strconv.Atoi(input)
+	if err != nil || choice < 1 || choice > len(choices) {
+		fmt.Println("❌ Invalid selection.")
+		return
+	}
+
+	selected := choices[choice-1]
+	
+	p := &deploy.Project{
+		Name:            meta.Name,
+		RollbackBackups: meta.RollbackBackups,
+	}
+
+	if err := deploy.RestoreRollback(client, p, selected, os.Stdout, os.Stderr); err != nil {
+		fmt.Printf("❌ Rollback failed: %v\n", err)
+	} else {
+		fmt.Println("\n✅ Rollback successful!")
+	}
+}
+
+func formatTimestamp(ts string) string {
+	if len(ts) != 14 {
+		return ts
+	}
+	// YYYYMMDDHHMMSS
+	// 01234567890123
+	year := ts[0:4]
+	month := ts[4:6]
+	day := ts[6:8]
+	hour := ts[8:10]
+	minute := ts[10:12]
+	second := ts[12:14]
+	return fmt.Sprintf("%s/%s/%s | %s:%s:%s", day, month, year, hour, minute, second)
 }
