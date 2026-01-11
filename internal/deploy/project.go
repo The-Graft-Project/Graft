@@ -17,10 +17,11 @@ type Service struct {
 }
 
 type Project struct {
-	Name           string             `yaml:"name"`
-	Domain         string             `yaml:"domain"`
-	DeploymentMode string             `yaml:"-"` // Not exported to YAML, used for generation logic
-	Services       map[string]Service `yaml:"services"`
+	Name            string             `yaml:"name"`
+	Domain          string             `yaml:"domain"`
+	DeploymentMode  string             `yaml:"-"` // Not exported to YAML, used for generation logic
+	Services        map[string]Service `yaml:"services"`
+	RollbackBackups int                `yaml:"-"` // Not exported to YAML
 }
 
 func GenerateBoilerplate(name, domain, deploymentMode string) *Project {

@@ -93,6 +93,20 @@ func (c *Client) RunCommand(cmd string, stdout, stderr io.Writer) error {
 	return session.Run(cmd)
 }
 
+func (c *Client) GetCommandOutput(cmd string) (string, error) {
+	session, err := c.client.NewSession()
+	if err != nil {
+		return "", err
+	}
+	defer session.Close()
+
+	out, err := session.Output(cmd)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 func (c *Client) InteractiveSession() error {
 	// Verify key exists
 	if _, err := os.Stat(c.keyPath); err != nil {

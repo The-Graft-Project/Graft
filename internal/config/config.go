@@ -246,6 +246,7 @@ type ProjectMetadata struct {
 	Initialized    bool   `json:"initialized"`
 	DeploymentMode string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild"
 	GraftHookURL   string `json:"graft_hook_url,omitempty"`
+	RollbackBackups int	`json:"rollback_backups,omitempty"`
 }
 
 // SaveProjectMetadata saves project metadata to .graft/project.json and registers it globally
