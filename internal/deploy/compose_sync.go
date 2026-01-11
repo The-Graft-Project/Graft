@@ -32,6 +32,11 @@ func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr 
 	fmt.Fprintf(stdout, "📄 Syncing %s file only...\n", printstr)
 
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
+
+	// Perform backup before sync if configured
+	if err := PerformBackup(client, p, stdout, stderr); err != nil {
+		fmt.Fprintf(stdout, "⚠️  Backup warning: %v\n", err)
+	}
 	
 	// Ensure remote projects directory exists and is owned by the user
 	// We do this once at the beginning to handle both compose and env sync cases
