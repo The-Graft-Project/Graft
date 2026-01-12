@@ -30,10 +30,10 @@ Built for the solo developer rotating between cloud free tiers and the small tea
 **Graft's approach:**
 ```bash
 # Local development
-docker compose logs backend
+docker compose up -d --pull always
 
 # Production with Graft (same commands)
-graft logs backend
+graft up -d --pull always
 ```
 
 Same workflow. Different server. That's it.
@@ -92,6 +92,16 @@ graft exec backend ls -la              # Run single commands
 graft exec backend cat /app/config.yml # Read files
 graft run alpine echo "hello"          # Quick throwaway commands
 ```
+
+**Automatic Dns Mapping for Cloudflare based DNSs:**
+```bash
+graft map  #Automatically detects domains by service and sets DNS 
+```
+**Easy Rollback to previous deployments:**
+```bash
+graft rollback  #Display previous deployments and allow you to rollback to any of them
+graft rollback config #Set up how many versions to keep
+``` 
 
 **Important caveat:** Interactive sessions (like `graft exec -it backend bash`) don't work due to SSH-in-SSH limitations. For that, use `graft -sh` to drop into a proper SSH session first, then run your Docker commands there.
 
@@ -180,6 +190,8 @@ graft sync
 graft ps                    # Check status
 graft logs backend          # View logs
 graft restart frontend      # Restart service
+graft map #automatically updates cloudflare dns records
+graft rollback #roll back to previous versions
 ```
 
 **That's it.** Your project is running on the server, managed via familiar commands.
@@ -231,17 +243,10 @@ graft exec backend cat /app/log.txt # One-liner commands work
 
 **Not for:**
 - Multi-region deployments
-- Auto-scaling based on load (yet)
-- Complex microservice meshes
-- Teams that need Kubernetes features
-
-If you need Kubernetes, use Kubernetes. Graft is for everyone else who just wants to deploy Docker Compose projects and get back to building features.
-
+- Multi-server deployments
 ---
 
 ## 🏷️ What Makes This Different
-
-**vs Kubernetes:** Simpler. Uses Docker Compose instead of new abstractions. For when you need to deploy services, not manage a cluster.
 
 **vs Dokku/CapRover:** No web UI, pure CLI. More flexible deployment modes. Better for managing multiple projects across multiple servers.
 
@@ -255,8 +260,6 @@ If you need Kubernetes, use Kubernetes. Graft is for everyone else who just want
 
 Planned features:
 - Dev/prod environment separation
-- Database backup automation (with S3/R2) [Added-Experimental]
-- Rollback mechanism
 - Slack/Discord notifications
 - Health checks and monitoring
 

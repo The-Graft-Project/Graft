@@ -445,6 +445,59 @@ graft sync compose -h           # Upload only (no restart)
 
 ---
 
+## Rollback Commands
+
+Manage project versioning and rollbacks. Graft automatically creates a backup of your configuration and images during every `sync`.
+
+### `graft rollback`
+Roll back the entire project to a previous backup version.
+
+```bash
+graft rollback
+```
+
+**What it does:**
+1. Lists available backups with timestamps.
+2. Interactively prompts you to select a version.
+3. Restores `docker-compose.yml` and environment files.
+4. Stops current services and clearing images to prevent tag conflicts.
+5. Loads and re-tags compressed images from the backup.
+6. Restarts all services using the restored versions with `--pull never`.
+
+---
+
+### `graft rollback service <name>`
+Roll back only a specific service to a previous version.
+
+```bash
+graft rollback service backend
+```
+
+**What it does:**
+1. Lists available backups.
+2. Extracts the specific service configuration from the selected backup.
+3. Updates the remote `docker-compose.yml` for only that service.
+4. Stops the service and restores its specific image.
+5. Restarts the targeted service without affecting others using `--pull never`.
+
+---
+
+### `graft rollback config`
+Configure how many rollback versions Graft should keep on the server.
+
+```bash
+graft rollback config
+```
+
+**Interactive Options:**
+- **Change Limit**: Set how many historical versions to retain (default: 3).
+- **Disable Rollbacks**: Set limit to `0` to stop creating backups.
+- **Remove Config**: Delete the rollback configuration from the project.
+
+**Note:** Changes are synced to both your local `.graft/project.json` and the remote `graft-hook` configuration.
+
+---
+
 ## DNS Mapping Commands
 
 ### `graft map`
