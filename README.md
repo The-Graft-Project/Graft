@@ -148,6 +148,43 @@ Built for rotating between cloud providers:
 ## 🛠️ Installation
 
 ### Linux
+
+**Homebrew (macOS/Linux):**
+```bash
+brew tap skssmd/tap
+brew install graft
+```
+
+**Debian/Ubuntu (APT):**
+```bash
+echo "deb [trusted=yes] https://apt.fury.io/skssmd/ /" | sudo tee /etc/apt/sources.list.d/graft.list
+sudo apt update
+sudo apt install graft
+```
+
+**Fedora/RHEL/Amazon Linux (YUM/DNF):**
+```bash
+echo "[graft]
+name=Graft Repository
+baseurl=https://yum.fury.io/skssmd/
+enabled=1
+gpgcheck=0" | sudo tee /etc/yum.repos.d/graft.repo
+sudo yum install graft
+```
+
+**Snap Store:**
+```bash
+sudo snap install graft --classic
+```
+
+**Arch Linux (AUR):**
+```bash
+yay -S graft-bin
+# or
+paru -S graft-bin
+```
+
+**Shell Script:**
 ```bash
 curl -sSL https://raw.githubusercontent.com/skssmd/Graft/main/bin/install.sh | sh
 ```
@@ -200,7 +237,7 @@ graft rollback #roll back to previous versions
 
 ## 📖 Documentation
 
-**Full command reference:** [COMMANDS.md](COMMANDS.md)
+**Full documentation:** [graftdocs.vercel.app](https://graftdocs.vercel.app)
 
 **Common workflows:**
 

@@ -249,6 +249,8 @@ func printUsage() {
 	fmt.Println("  mode                      Change project deployment mode")
 	fmt.Println("  map                       Map all service domains to Cloudflare DNS")
 	fmt.Println("  map service <name>        Map specific service domain to Cloudflare DNS")
+	fmt.Println("\nFull Documentation:")
+	fmt.Println("  https://graftdocs.vercel.app")
 }
 func runMode() {
 	reader := bufio.NewReader(os.Stdin)
