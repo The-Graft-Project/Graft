@@ -146,13 +146,13 @@ aurs:
       email: bot@goreleaser.com
 
 # Snapcraft (Snap Store)
-snaps:
+snapcrafts:
   - # Snap name
     name: graft
     
     # Description
     summary: Agentless deployment tool extending Docker Compose to cloud via SSH
-    description: Agentless deployment tool extending Docker Compose to cloud via SSH
+    description: A simple agentless deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH. Graft enables native remote management of AWS, GCP, and VPS instances with no agent installs or server-side overhead required. With features like DNS Configurations, Rollbacks, CI/CD Workflow
     
     # License
     license: MIT
