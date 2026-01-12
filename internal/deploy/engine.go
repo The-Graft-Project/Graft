@@ -189,6 +189,11 @@ func createTarball(sourceDir, tarballPath string) error {
 func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, heave, useGit bool, gitBranch, gitCommit string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "🎯 Syncing service: %s\n", serviceName)
 
+	// Perform backup before sync if configured
+	if err := PerformBackup(client, p, stdout, stderr); err != nil {
+		fmt.Fprintf(stdout, "⚠️  Backup warning: %v\n", err)
+	}
+
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
 	
 	// Update project metadata with current remote path
@@ -505,6 +510,11 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch, gitCommit string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "🚀 Syncing project: %s\n", p.Name)
 
+	// Perform backup before sync if configured
+	if err := PerformBackup(client, p, stdout, stderr); err != nil {
+		fmt.Fprintf(stdout, "⚠️  Backup warning: %v\n", err)
+	}
+
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
 	
 	// Update project metadata with current remote path
@@ -738,7 +748,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 		fmt.Fprintln(stdout, "✅ Heave sync complete (upload only)!")
 		return nil
 	}
-
+	
 	// Build and start services
 	if noCache {
 		fmt.Fprintln(stdout, "🧹 Clearing build cache for fresh build...")
@@ -825,4 +835,70 @@ func ExtractTraefikHosts(labels []string) []string {
 	}
 	
 	return hosts
+}
+
+func PerformBackup(client *ssh.Client, p *Project, stdout, stderr io.Writer) error {
+	if p.RollbackBackups <= 0 {
+		return nil
+	}
+
+	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
+
+	// Check if project exists on remote
+	if err := client.RunCommand(fmt.Sprintf("ls %s/docker-compose.yml", remoteDir), nil, nil); err != nil {
+		return nil
+	}
+
+	// 1. Get timestamp
+	out, err := client.GetCommandOutput("date +%Y%m%d%H%M%S")
+	if err != nil {
+		return fmt.Errorf("failed to get timestamp: %v", err)
+	}
+	timestamp := strings.TrimSpace(out)
+
+	backupBase := fmt.Sprintf("/opt/graft/backup/%s", p.Name)
+	backupDir := fmt.Sprintf("%s/%s", backupBase, timestamp)
+
+	fmt.Fprintf(stdout, "\n📦 Creating rollback backup: %s\n", timestamp)
+
+	// Create backup dirs
+	client.RunCommand(fmt.Sprintf("sudo mkdir -p %s/compose %s/images", backupDir, backupDir), stdout, stderr)
+
+	// Backup docker-compose.yml and env/
+	client.RunCommand(fmt.Sprintf("sudo cp %s/docker-compose.yml %s/compose/ 2>/dev/null", remoteDir, backupDir), stdout, stderr)
+	client.RunCommand(fmt.Sprintf("sudo cp -r %s/env %s/compose/ 2>/dev/null", remoteDir, backupDir), stdout, stderr)
+
+	// Backup images
+	fmt.Fprintf(stdout, "  🖼️  Saving service images...\n")
+	saveImagesCmd := fmt.Sprintf("cd %s && for img in $(sudo docker compose images -q); do "+
+		"name=$(sudo docker image inspect $img --format '{{index .RepoTags 0}}' | tr ':/' '__'); "+
+		"[ -n \"$name\" ] && [ \"$name\" != \"<nil>\" ] && sudo docker save $img -o %s/images/\"$name\".tar; done", remoteDir, backupDir)
+	client.RunCommand(saveImagesCmd, stdout, stderr)
+
+	// Clean up old backups
+	cleanCmd := fmt.Sprintf("cd %s && ls -1dt * | tail -n +%d | xargs -I {} sudo rm -rf {}", backupBase, p.RollbackBackups+1)
+	client.RunCommand(cleanCmd, stdout, stderr)
+
+	return nil
+}
+
+func RestoreRollback(client *ssh.Client, p *Project, backupTimestamp string, stdout, stderr io.Writer) error {
+	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
+	backupDir := fmt.Sprintf("/opt/graft/backup/%s/%s", p.Name, backupTimestamp)
+
+	fmt.Fprintf(stdout, "⏪ Rolling back to version %s...\n", backupTimestamp)
+
+	// 1. Restore files
+	client.RunCommand(fmt.Sprintf("sudo cp %s/compose/docker-compose.yml %s/", backupDir, remoteDir), stdout, stderr)
+	client.RunCommand(fmt.Sprintf("sudo cp -r %s/compose/env %s/ 2>/dev/null", backupDir, remoteDir), stdout, stderr)
+
+	// 2. Load images if any
+	fmt.Fprintf(stdout, "📥 Loading backed up images...\n")
+	loadCmd := fmt.Sprintf("for img in %s/images/*.tar; do [ -f \"$img\" ] && sudo docker load -i \"$img\"; done", backupDir)
+	client.RunCommand(loadCmd, stdout, stderr)
+
+	// 3. Restart services
+	fmt.Fprintf(stdout, "🚀 Restarting services...\n")
+	restartCmd := fmt.Sprintf("cd %s && sudo docker compose up -d --remove-orphans", remoteDir)
+	return client.RunCommand(restartCmd, stdout, stderr)
 }
