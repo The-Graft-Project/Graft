@@ -1,55 +1,211 @@
-name: Release
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
 
-on:
-  push:
-    tags:
-      - 'v*'  # Triggers on any v* tag (v1.0.0, v2.2.1, etc.)
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
 
-permissions:
-  contents: write
-  id-token: write  # For SLSA provenance
-  packages: write
+builds:
+  - main: ./cmd/graft
+    binary: graft
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
 
-jobs:
-  goreleaser:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Full git history for changelog
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: stable  # Use latest stable Go version
+checksum:
+  name_template: "checksums.txt"
 
-      - name: Run tests
-        run: go test -v ./...
+snapshot:
+  version_template: "{{ .Tag }}-next"
 
-      - name: Import GPG key (for signing packages)
-        id: import_gpg
-        uses: crazy-max/ghaction-import-gpg@v6
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+# Homebrew Tap (macOS and Linux)
+brews:
+  - # GitHub repository for your Homebrew tap
+    # You'll need to create a repo named homebrew-tap (or homebrew-<anything>)
+    repository:
+      owner: skssmd  # Your GitHub username
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    
+    # Commit author for Homebrew formula updates
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    
+    # Directory inside the repository where formula will be stored
+    directory: Formula
+    
+    # Homepage of your project
+    homepage: "https://github.com/skssmd/graft"
+    
+    # Description for Homebrew
+    description: "A simple agentless deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH. Graft enables native remote management of AWS, GCP, and VPS instances with no agent installs or server-side overhead required. With features like DNS Configurations, Rollbacks, CI/CD Workflow"
+    
+    # License
+    license: "MIT"
+    
+    # Install script
+    install: |
+      bin.install "graft"
+    
+    # Test to verify installation
+    test: |
+      system "#{bin}/graft --version"
 
-      - name: Install cosign (for binary signing)
-        uses: sigstore/cosign-installer@v3.4.0
+# Debian/Ubuntu APT repository (using Fury.io or custom repo)
+nfpms:
+  - # Package name
+    package_name: graft
+    
+    # Your info
+    vendor: skssmd
+    homepage: https://github.com/skssmd/graft
+    maintainer: skssmd <skssmd78475@gmail.com>
+    
+    # Description
+    description: A simple agentless deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH. Graft enables native remote management of AWS, GCP, and VPS instances with no agent installs or server-side overhead required. With features like DNS Configurations, Rollbacks, CI/CD Workflow
+    
+    # License
+    license: MIT
+    
+    # Formats to generate
+    formats:
+      - deb      # Debian/Ubuntu
+      - rpm      # RedHat/Fedora
+      - apk      # Alpine
+      - archlinux # Arch Linux
+    
+    # No dependencies - graft is a standalone binary
+    # It installs docker/docker-compose/git on target servers via SSH
+    
+    # Files to include
+    contents:
+      # Man pages (optional)
+      # - src: ./manpages/graft.1.gz
+      #   dst: /usr/share/man/man1/graft.1.gz
+      
+      # Completion scripts (optional)
+      # - src: ./completions/graft.bash
+      #   dst: /usr/share/bash-completion/completions/graft
+      
+      # Config files (optional)
+      # - src: ./config/graft.yml
+      #   dst: /etc/graft/config.yml
+      #   type: config
 
-      - name: Install syft (for SBOM generation)
-        uses: anchore/sbom-action/download-syft@v0.15.10
+# AUR (Arch User Repository)
+aurs:
+  - # AUR package name
+    name: graft
+    
+    # Your AUR SSH key (you'll need to set this up)
+    # Generate with: ssh-keygen -t ed25519 -C "aur@archlinux.org"
+    # Add to AUR: https://aur.archlinux.org/account/
+    private_key: "{{ .Env.AUR_SSH_KEY }}"
+    
+    # Git URL for AUR repository
+    git_url: "ssh://aur@aur.archlinux.org/graft.git"
+    
+    # Package description
+    description: "A simple agentless deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH. Graft enables native remote management of AWS, GCP, and VPS instances with no agent installs or server-side overhead required. With features like DNS Configurations, Rollbacks, CI/CD Workflow"
+    
+    # Maintainers
+    maintainers:
+      - "skssmd <skssmd78475@gmail.com>"
+    
+    # Contributors (optional)
+    contributors:
+      - "skssmd <skssmd78475@gmail.com>"
+    
+    # License
+    license: MIT
+    
+    # Homepage
+    homepage: "https://github.com/skssmd/graft"
+    
+    # No dependencies - graft is a standalone binary
+    # It installs docker/docker-compose/git on remote servers via SSH
+    
+    # Commit author
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-          FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
-          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+# Publishers for APT/RPM (using Gemfury, Cloudsmith, or custom)
+# If you want to host your own APT repository, use this:
+publishers:
+  - name: fury.io
+    # You'll need a Fury.io account token
+    env:
+      - FURY_TOKEN={{ .Env.FURY_TOKEN }}
+    cmd: |
+      curl -F package=@{{ .ArtifactPath }} https://{{ .Env.FURY_TOKEN }}@push.fury.io/skssmd/
+
+release:
+  # Set to true to create draft releases (you can publish manually after review)
+  draft: false
+  # Set to true to mark as prerelease for beta/rc tags
+  prerelease: auto
+  
+  header: |
+    ## Feature Update with Graft  🚀
+    
+    ### Installation
+    
+    **Homebrew (macOS/Linux):**
+    ```bash
+    brew tap skssmd/tap
+    brew install graft
+    ```
+    
+    **Debian/Ubuntu:**
+    ```bash
+    # Download .deb from releases
+    sudo dpkg -i graft_{{ .Version }}_linux_amd64.deb
+    ```
+    
+    **Arch Linux (AUR):**
+    ```bash
+    yay -S graft
+    # or
+    paru -S graft
+    ```
+    
+    **Manual Install:**
+    Download the appropriate archive for your platform from the releases below.
+    
+    ---
+    
+    ### V2.2 Highlights:
+    1. **Rollback Feature**: Added rollback functionality to revert to previous deployments.
+    2. **Bug Fixes and Improvements**: 
+                        - Webhook detection and error handling.   
+                        - graft-compose.yml optimizations. 
+    
+    ### V2 Highlights:
+    This release introduces significant enhancements to Graft, moving from basic local-to-server deployments to a more robust CI/CD-driven workflow using GitHub Actions and our new `graft-hook` service.
+    
+    1. **Git Remote Modes**: Move away from direct local-to-server channels. Deployments now go through GitHub Workflows and CI/CD channels.
+    2. **Graft-Hook**: A new webhook service personalized specifically for Graft-based servers, maintaining a zero-config solution with proper security.
+    3. **Automated GitHub Workflows**: Graft now generates production-ready workflows automatically from your `graft-compose.yml` context.
+    4. **Enhanced Monitoring**: Easy CLI-based monitoring for `graft-hook`, including real-time build error logs.
+    5. **Cloudflare API Integration**: Automated DNS zone mapping based on Traefik host labels.
+    6. **Cloudflare Zone Registry**: Manage multiple Cloudflare accounts and zones with an interactive selection menu.
+    7. **Database Backup Automation(Infrastructure)**: Easily backup Infrastructure databases to S3/R2(Experimental).
+  
+  footer: |
+    ---
+    Released by **skssmd** using [GoReleaser](https://github.com/goreleaser/goreleaser).
