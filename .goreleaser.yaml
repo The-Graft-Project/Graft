@@ -108,8 +108,8 @@ nfpms:
 
 # AUR (Arch User Repository)
 aurs:
-  - # AUR package name
-    name: graft
+  - # AUR package name (GoReleaser will use graft-bin for binary packages)
+    name: graft-bin
     
     # Your AUR SSH key (you'll need to set this up)
     # Generate with: ssh-keygen -t ed25519 -C "aur@archlinux.org"
@@ -117,9 +117,9 @@ aurs:
     private_key: "{{ .Env.AUR_SSH_KEY }}"
     
     # Git URL for AUR repository
-    git_url: "ssh://aur@aur.archlinux.org/graft.git"
+    git_url: "ssh://aur@aur.archlinux.org/graft-bin.git"
     
-    # Package description
+    # Package description (AUR requires max 80 chars, no period at end)
     description: "Agentless deployment tool extending Docker Compose to cloud via SSH"
     
     # Maintainers
@@ -179,9 +179,9 @@ release:
     
     **Arch Linux (AUR):**
     ```bash
-    yay -S graft
+    yay -S graft-bin
     # or
-    paru -S graft
+    paru -S graft-bin
     ```
     
     **Manual Install:**
