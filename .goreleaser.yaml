@@ -45,8 +45,8 @@ brews:
       name: goreleaserbot
       email: bot@goreleaser.com
     
-    # Folder inside the repository where formula will be stored
-    folder: Formula
+    # Directory inside the repository where formula will be stored
+    directory: Formula
     
     # Homepage of your project
     homepage: "https://github.com/skssmd/graft"
@@ -124,17 +124,17 @@ aurs:
     
     # Maintainers
     maintainers:
-      - "skssmd <your-email@example.com>"
+      - "skssmd <skssmd78475@gmail.com>"
     
     # Contributors (optional)
     contributors:
-      - "skssmd <your-email@example.com>"
+      - "skssmd <skssmd78475@gmail.com>"
     
     # License
     license: MIT
     
     # Homepage
-    url: "https://github.com/skssmd/graft"
+    homepage: "https://github.com/skssmd/graft"
     
     # No dependencies - graft is a standalone binary
     # It installs docker/docker-compose/git on remote servers via SSH
@@ -155,6 +155,11 @@ publishers:
       curl -F package=@{{ .ArtifactPath }} https://{{ .Env.FURY_TOKEN }}@push.fury.io/skssmd/
 
 release:
+  # Set to true to create draft releases (you can publish manually after review)
+  draft: false
+  # Set to true to mark as prerelease for beta/rc tags
+  prerelease: auto
+  
   header: |
     ## Feature Update with Graft  🚀
     
@@ -178,6 +183,9 @@ release:
     # or
     paru -S graft
     ```
+    
+    **Manual Install:**
+    Download the appropriate archive for your platform from the releases below.
     
     ---
     
