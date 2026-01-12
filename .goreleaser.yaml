@@ -52,7 +52,7 @@ brews:
     homepage: "https://github.com/skssmd/graft"
     
     # Description for Homebrew
-    description: "A simple agentless deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH. Graft enables native remote management of AWS, GCP, and VPS instances with no agent installs or server-side overhead required. With features like DNS Configurations, Rollbacks, CI/CD Workflow"
+    description: "Agentless deployment tool extending Docker Compose to cloud via SSH"
     
     # License
     license: "MIT"
@@ -76,7 +76,7 @@ nfpms:
     maintainer: skssmd <skssmd78475@gmail.com>
     
     # Description
-    description: A simple agentless deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH. Graft enables native remote management of AWS, GCP, and VPS instances with no agent installs or server-side overhead required. With features like DNS Configurations, Rollbacks, CI/CD Workflow
+    description: Agentless deployment tool extending Docker Compose to cloud via SSH
     
     # License
     license: MIT
@@ -120,7 +120,7 @@ aurs:
     git_url: "ssh://aur@aur.archlinux.org/graft.git"
     
     # Package description
-    description: "A simple agentless deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH. Graft enables native remote management of AWS, GCP, and VPS instances with no agent installs or server-side overhead required. With features like DNS Configurations, Rollbacks, CI/CD Workflow"
+    description: "Agentless deployment tool extending Docker Compose to cloud via SSH"
     
     # Maintainers
     maintainers:
