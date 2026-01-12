@@ -34,8 +34,6 @@ jobs:
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
-        # Only run if GPG secrets are set
-        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
 
       - name: Install cosign (for binary signing)
         uses: sigstore/cosign-installer@v3.4.0
