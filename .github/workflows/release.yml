@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'      # Triggers on v1.0.8, v2.1.0, etc.
+      - 'v*'  # Triggers on any v* tag (v1.0.0, v2.2.1, etc.)
   workflow_dispatch:  # Allows manual trigger from GitHub UI
 
 permissions:
@@ -23,22 +23,35 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
-
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3.4.0
-
-      - name: Install syft
-        uses: anchore/sbom-action/download-syft@v0.15.10
+          go-version: stable  # Use latest stable Go version
 
       - name: Run tests
         run: go test -v ./...
 
+      - name: Import GPG key (for signing packages)
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+        # Only run if GPG secrets are set
+        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+
+      - name: Install cosign (for binary signing)
+        uses: sigstore/cosign-installer@v3.4.0
+
+      - name: Install syft (for SBOM generation)
+        uses: anchore/sbom-action/download-syft@v0.15.10
+
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: 'v2'
+          version: latest
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
