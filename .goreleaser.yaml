@@ -35,6 +35,7 @@ snapshot:
 brews:
   - # GitHub repository for your Homebrew tap
     # You'll need to create a repo named homebrew-tap (or homebrew-<anything>)
+    name: graft
     repository:
       owner: skssmd  # Your GitHub username
       name: homebrew-tap
@@ -144,6 +145,28 @@ aurs:
       name: goreleaserbot
       email: bot@goreleaser.com
 
+# Snapcraft (Snap Store)
+snaps:
+  - # Snap name
+    name: graft
+    
+    # Description
+    summary: Agentless deployment tool extending Docker Compose to cloud via SSH
+    description: Agentless deployment tool extending Docker Compose to cloud via SSH
+    
+    # License
+    license: MIT
+    
+    # Type of snap (classic or strict)
+    # Graft needs classic because it interacts with the local file system, SSH, and Git
+    confinement: classic
+    
+    # Build to publish
+    publish: true
+    
+    # Graded (devel or stable)
+    grade: stable
+
 # Publishers for APT/RPM (using Gemfury, Cloudsmith, or custom)
 # If you want to host your own APT repository, use this:
 publishers:
@@ -182,6 +205,11 @@ release:
     yay -S graft-bin
     # or
     paru -S graft-bin
+    ```
+    
+    **Snap Store:**
+    ```bash
+    sudo snap install graft --classic
     ```
     
     **Manual Install:**
