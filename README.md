@@ -5,6 +5,11 @@
 ██    ██ ██   ██ ██   ██ ██         ██    
  ██████  ██   ██ ██   ██ ██         ██    
 ```
+<p align="center">
+  <a href="https://graftdocs.vercel.app"><strong>Documentation</strong></a> |
+  <a href="https://github.com/skssmd/Graft/issues"><strong>Support</strong></a> |
+</p>
+
 
 # Graft 🚀
 
