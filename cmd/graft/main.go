@@ -829,9 +829,6 @@ networks:
 	fmt.Printf("\n✨ Project '%s' initialized!\n", projName)
 	fmt.Printf("Local config: .graft/config.json\n")
 	fmt.Printf("Boilerplate: graft-compose.yml\n")
-	if deploymentMode == "git-images" || deploymentMode == "git-repo-serverbuild" {
-		fmt.Printf("GitHub Actions Example: examples/github-actions-workflow.yml\n")
-	}
 }
 
 func runHostInit() {

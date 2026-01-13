@@ -12,7 +12,7 @@
 
 Graft is a deployment tool for developers who know Docker Compose and want to keep using it in production. No new DSL to learn, no complex YAML configurations, no agent installations—just your familiar `docker-compose.yml` and some SSH magic.
 
-Built for the solo developer rotating between cloud free tiers and the small team that finds Kubernetes overkill. If you can run `docker compose up` locally, you can deploy to production with Graft.
+Built for teams that want a simple production environment. If you can run `docker compose up` locally, you can deploy to production with Graft.
 
 > [!IMPORTANT]
 > Use a **clean server** for initial setup. Graft configures Docker, Traefik, and networking automatically, which may conflict with existing manual configurations.
@@ -24,7 +24,7 @@ Built for the solo developer rotating between cloud free tiers and the small tea
 **The typical deployment journey:**
 1. Docker Compose works great locally
 2. Time to deploy to production
-3. Options: Learn Kubernetes, pay for managed platforms, or SSH in manually
+3. Options: Use complex orchestration, pay for managed platforms, or SSH in manually and do boring setup
 4. All of these suck in different ways
 
 **Graft's approach:**
@@ -38,7 +38,7 @@ graft up -d --pull always
 
 Same workflow. Different server. That's it.
 
-**Graft is a simple tool for simple use cases.** Sometimes you don't need Kubernetes-level features—you just need to put your service online as fast as possible, make sure it stays healthy, and interact with it without verbose steps. No manifest sprawl, no cluster management.
+**Graft is a simple tool for simple use cases.** Sometimes you just need to put your service online as fast as possible, make sure it stays healthy, and interact with it without verbose steps. No complex configuration, no cluster management.
 
 ---
 
@@ -140,7 +140,6 @@ When you have 5 clients with 3 projects each across different servers, Graft han
 Built for rotating between cloud providers:
 - Quick server initialization (5 minutes from fresh server to deployed)
 - DNS sync on migration
-- Project export/import
 - Works with AWS, GCP, DigitalOcean, any VPS with SSH
 
 ---
@@ -172,7 +171,7 @@ gpgcheck=0" | sudo tee /etc/yum.repos.d/graft.repo
 sudo yum install graft
 ```
 
-**Snap Store:**
+**Snap Store:(under review)**
 ```bash
 sudo snap install graft --classic
 ```
@@ -270,17 +269,43 @@ graft exec backend cat /app/log.txt # One-liner commands work
 
 ## 🎯 Use Cases
 
-**Perfect for:**
-- Solo developers with side projects who need to ship fast
-- Small teams not ready for Kubernetes (and probably don't need it)
-- Agencies or freelancers juggling multiple clients and projects across different servers—Graft keeps track so you don't have to
-- Migrating between cloud providers (free tier rotation is a valid business strategy - i think :P)
-- Rapid prototyping and iteration without deployment overhead
-- Projects that outgrew localhost but don't need enterprise orchestration
+<table width="100%">
+  <tr>
+    <td width="50%" valign="top">
+      <h4>🚀 Solo Developers</h4>
+      <p>Ship side projects fast without the overhead of complex orchestration or managed platform bills.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h4>👥 Small Teams</h4>
+      <p>Create a simple, robust production environment that everyone on the team can understand and manage.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>🏢 Agencies & Freelancers</h4>
+      <p>Juggling dozens of clients? Graft manages project context across servers so you don't have to.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h4>☁️ Cloud Migrators</h4>
+      <p>Easily rotate between cloud free tiers and keep your setup portable and vendor-neutral.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>🧪 Rapid Prototyping</h4>
+      <p>Go from a "naked" VPS to a live, SSL-secured URL with CI/CD in under 5 minutes.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h4>📈 The "Mid-Stage" App</h4>
+      <p>Perfect for when your app outgrows localhost but doesn't yet need enterprise-grade complexity.</p>
+    </td>
+  </tr>
+</table>
 
-**Not for:**
-- Multi-region deployments
-- Multi-server deployments
+### 🚫 Graft is NOT a match for:
+- **Multi-region/server setup**: Graft is not suited for multi server architectural meshes.
+
+
 ---
 
 ## 🏷️ What Makes This Different
@@ -334,4 +359,4 @@ Built by a developer tired of manually SSH-ing into servers to check logs. Might
 
 ---
 
-**TL;DR:** Docker Compose commands that work on remote servers. Deploy your projects without learning Kubernetes or paying for managed platforms. Works with any server you can SSH into.
+**TL;DR:** Docker Compose commands that work on remote servers. Deploy your projects without complex setup or paying for managed platforms. Works with any server you can SSH into.
