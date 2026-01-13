@@ -44,30 +44,12 @@ Same workflow. Different server. That's it.
 
 ## 🏗️ How It Works
 
-**Core concept:** Graft extends Docker Compose to remote servers over SSH.
+**Graft bridges the gap between your local development and remote servers.** It takes your standard `docker-compose.yml` and pushes it to your server over SSH, handling all the complex infrastructure setup automatically.
 
-Every Graft project has:
-- Your existing `docker-compose.yml`
-- A `graft-compose.yml` (Graft-specific context—basically a smarter docker-compose that Graft reads)
-- A `.graft` folder (stores server config, project context, and all the boring infrastructure details)
-- SSH access to a server
-
-When you run `graft init`, it:
-1. Attaches to your server (or registers a new one if this is your first rodeo)
-2. Checks if the server is ready—if not, it installs Docker, Traefik, configures networking, and basically does all the boring sysadmin stuff you'd rather not do
-3. Asks you which deployment mode you want (or skip it, you can configure later when you've had your coffee)
-4. Installs grafthook if needed (for webhook-based deployments—it's like a doorbell for your CI/CD)
-5. Generates a `graft-compose.yml` boilerplate because blank files are scary
-
-When you run `graft sync`, it:
-1. Checks your mode and project context (Graft remembers which project belongs to which server—better memory than you after a long weekend)
-2. Updates or generates Dockerfiles based on your context (smart templating, not just copy-paste)
-3. Extracts environment variables from `graft-compose.yml` into a separate `.env` file and wires it to your `docker-compose.yml` (because mixing config and secrets is a recipe for accidentally committing API keys)
-4. Generates a GitHub Actions workflow that actually works—with grafthook integration, proper secrets handling, and zero additional configuration needed (assuming your `graft-compose.yml` isn't a disaster)
-5. Asks nicely if you want to send environment variables directly to the server (secure transfer, not shouting them over SSH)
-6. Syncs your source code based on mode—rsync for direct modes, or politely asks Git to handle it for CI/CD modes
-
-Then you manage it like localhost: `graft ps`, `graft logs`, `graft restart frontend`—all the Docker Compose commands you already know.
+- **Zero-Config Infrastructure**: Graft automatically configures your server—installing Docker, Traefik, and setting up secure networking and SSL certificates—so you don't have to.
+- **Project Contexts**: It remembers which project belongs to which server, allowing you to manage dozens of deployments without manually switching SSH details.
+- **Automated Workflows**: Graft generates production-ready GitHub Actions, handles environment variables securely, and sets up webhooks for seamless CI/CD.
+- **Remote Passthrough**: Once set up, manage your production apps exactly like localhost. `graft ps`, `graft logs`, and `graft up` work just like their Docker Compose counterparts.
 
 ---
 
