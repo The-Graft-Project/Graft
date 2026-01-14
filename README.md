@@ -5,150 +5,167 @@
 ██    ██ ██   ██ ██   ██ ██         ██    
  ██████  ██   ██ ██   ██ ██         ██    
 ```
+
 <p align="center">
-  <a href="https://graftdocs.vercel.app"><strong>Documentation</strong></a> |
-  <a href="https://github.com/skssmd/Graft/issues"><strong>Support</strong></a> |
+  <strong>Deploy to production the same way you develop locally</strong>
 </p>
 
-
-# Graft 🚀
-
-**Manage remote Docker Compose projects like they're running on localhost.**
-
-Graft is a deployment tool for developers who know Docker Compose and want to keep using it in production. No new DSL to learn, no complex YAML configurations, no agent installations—just your familiar `docker-compose.yml` and some SSH magic.
-
-Built for teams that want a simple production environment. If you can run `docker compose up` locally, you can deploy to production with Graft.
-
-> [!IMPORTANT]
-> Use a **clean server** for initial setup. Graft configures Docker, Traefik, and networking automatically, which may conflict with existing manual configurations.
+<p align="center">
+  <a href="https://graftdocs.vercel.app"><strong>Documentation</strong></a> |
+  <a href="https://github.com/skssmd/Graft/issues"><strong>Support</strong></a>
+</p>
 
 ---
 
-## 🎯 What Problem Does This Solve?
+## Your Docker Compose commands. Your production server. Zero friction.
 
-**The typical deployment journey:**
-1. Docker Compose works great locally
-2. Time to deploy to production
-3. Options: Use complex orchestration, pay for managed platforms, or SSH in manually and do boring setup
-4. All of these suck in different ways
-
-**Graft's approach:**
 ```bash
-# Local development
-docker compose up -d --pull always
+# This works locally
+docker compose up -d
 
-# Production with Graft (same commands)
-graft up -d --pull always
+# This works in production
+graft up -d
 ```
 
-Same workflow. Different server. That's it.
+**Same commands. Same workflow. Different server.**
 
-**Graft is a simple tool for simple use cases.** Sometimes you just need to put your service online as fast as possible, make sure it stays healthy, and interact with it without verbose steps. No complex configuration, no cluster management.
+No Kubernetes YAML. No proprietary DSLs. No monthly bills that scale with your traffic. Just SSH, Docker Compose, and automatic infrastructure setup.
 
 ---
 
-## 🏗️ How It Works
+## Why Graft exists
 
-**Graft bridges the gap between your local development and remote servers.** It takes your standard `docker-compose.yml` and pushes it to your server over SSH, handling all the complex infrastructure setup automatically.
+You've built something with Docker Compose. It works perfectly on your laptop. Now you need to deploy it.
 
-- **Zero-Config Infrastructure**: Graft automatically configures your server—installing Docker, Traefik, and setting up secure networking and SSL certificates—so you don't have to.
-- **Project Contexts**: It remembers which project belongs to which server, allowing you to manage dozens of deployments without manually switching SSH details.
-- **Automated Workflows**: Graft generates production-ready GitHub Actions, handles environment variables securely, and sets up webhooks for seamless CI/CD.
-- **Remote Passthrough**: Once set up, manage your production apps exactly like localhost. `graft ps`, `graft logs`, and `graft up` work just like their Docker Compose counterparts.
+Your options:
+- **Learn Kubernetes** → Weeks of YAML hell for a simple app
+- **Use a managed platform** → $50/month becomes $500/month when you succeed
+- **Manual SSH deployment** → Spend 3 hours setting up Traefik, Let's Encrypt, networking...
+
+**Or use Graft:** Point it at your server, run `graft sync`, and you're done.
+
+```bash
+graft init     # Configure once
+graft sync     # Deploy everything
+graft logs -f  # Check what's happening
+```
+
+Five minutes from bare VPS to live app with SSL, reverse proxy, and CI/CD.
 
 ---
 
-## ✨ Key Features
+## What you get
 
-### Docker Compose Passthrough (The Main Event 🎪)
-This is where Graft really shines: **any Docker Compose command works on remote servers, exactly as it does locally.**
+### 🎯 The core magic: Docker Compose, but remote
+
+Every command you know works on production:
 
 ```bash
-graft ps                    # See what's running
-graft logs backend -f       # Follow logs in real-time
-graft restart frontend      # Restart a service
-graft up -d                 # Start services detached
-graft down                  # Stop everything
-graft pull                  # Pull latest images
-graft build --no-cache      # Rebuild from scratch
+graft ps                          # What's running?
+graft logs backend -f             # Follow logs in real-time
+graft exec backend cat config.yml # Read files
+graft restart frontend            # Bounce a service
+graft pull && graft up -d         # Deploy updates
 ```
 
-**One-liner exec/run commands work perfectly:**
+Your muscle memory still works. Your Stack Overflow bookmarks still work. The only difference is the server location.
+
+### ⚡ Zero-config infrastructure
+
+Point Graft at a clean Ubuntu/Debian server and it:
+- Installs Docker automatically
+- Configures Traefik reverse proxy
+- Sets up SSL certificates via Let's Encrypt
+- Creates isolated Docker networks
+- Handles all the boring infrastructure work
+
+You focus on shipping features. Graft handles the DevOps.
+
+### 🚀 Deployment modes for every workflow
+
+**Just ship it:** Direct sync mode
 ```bash
-graft exec backend ls -la              # Run single commands
-graft exec backend cat /app/config.yml # Read files
-graft run alpine echo "hello"          # Quick throwaway commands
+graft sync  # Rsync code → server builds → done
 ```
 
-**Automatic Dns Mapping for Cloudflare based DNSs:**
+**Proper CI/CD:** GitHub Actions + GHCR
 ```bash
-graft map  #Automatically detects domains by service and sets DNS 
+graft init  # Choose git-images mode
+graft sync  # Auto-generates workflow, sets up webhooks, done
 ```
-**Easy Rollback to previous deployments:**
+
+Graft writes production-ready GitHub Actions workflows with zero configuration. No copying from StackOverflow. No debugging YAML indentation at 2 AM.
+
+### 🏢 Built for managing multiple projects
+
+Managing 10 clients across 5 servers?
+
 ```bash
-graft rollback  #Display previous deployments and allow you to rollback to any of them
-graft rollback config #Set up how many versions to keep
-``` 
+graft -p client1 logs api          # Project 1
+graft -p client2 restart backend   # Project 2
+graft -p client3 ps                # Project 3
+```
 
-**Important caveat:** Interactive sessions (like `graft exec -it backend bash`) don't work due to SSH-in-SSH limitations. For that, use `graft -sh` to drop into a proper SSH session first, then run your Docker commands there.
+Graft remembers which project lives where. You don't juggle SSH configs or server IPs.
 
-**All your muscle memory still works.** If you know Docker Compose, you know Graft. The only difference is your services are running on a server in some datacenter instead of melting your laptop's CPU.
+**Bonus:** `graft dns map` updates Cloudflare DNS automatically. Perfect for rotating between cloud free tiers.
 
-### Deployment Modes
-Choose how you want to deploy (you can switch anytime—commitment issues are valid):
+### 🔄 Bulletproof rollbacks
 
-**Direct mode** (no Git required):
-- **Direct sync**: Rsync your code to the server, server builds images locally. Fast iteration, perfect for "just ship it" moments.
+```bash
+graft rollback  # See deployment history, choose which to restore
+```
 
-**Git-based modes** (proper CI/CD for people who like feeling professional):
-- **GitHub Actions + GHCR**: Auto-generates workflow, builds images in the cloud, pushes to GitHub Container Registry, deploys via webhook. The full adult developer experience.
-- **GitHub Actions + server build**: Triggers your server to pull from repo and build there. For when you trust your server's CPU more than GitHub's runners.
-- **Git manual**: Sets up the Git integration, but you're in control of when to actually deploy. Trust issues mode.
-
-**The workflow generation is legitimately impressive:** Point Graft at your compose file, tell it your mode, and it writes a production-ready GitHub Actions workflow with grafthook integration, secrets management, image cleanup, and zero debugging needed. No more copying workflows from StackOverflow and hoping for the best.
-
-### Multi-Project & Server Management
-**Built for managing multiple clients, projects, and servers without losing your mind:**
-- **Project contexts**: `graft -p project1 ps` - Graft remembers which project belongs to which server. You don't have to.
-- **Service-level control**: `graft -p project1 logs api` - Target specific services within projects
-- **Server registry**: Manage multiple servers without juggling SSH config files or post-it notes
-- **One-command DNS migration**: `graft dns map` - Point your Cloudflare DNS at the current server. Works great for rotating between cloud free tiers when you inevitably hit the limits.
-- **Remote shell**: `graft -sh` - Drop into an SSH session when you need to dig around manually (we won't judge)
-
-When you have 5 clients with 3 projects each across different servers, Graft handles the context switching so you can focus on the actual work.
-
-### Infrastructure Automation
-- **Traefik reverse proxy**: Auto-configured with SSL via Let's Encrypt
-- **Shared services**: Optional Postgres/Redis instances shared across projects
-- **DNS automation**: Update Cloudflare DNS records automatically on deployment
-- **Network management**: Docker networks created and configured per project
-
-### Migration Friendly
-Built for rotating between cloud providers:
-- Quick server initialization (5 minutes from fresh server to deployed)
-- DNS sync on migration
-- Works with AWS, GCP, DigitalOcean, any VPS with SSH
+Every deployment is versioned. Broke production? Roll back in 10 seconds.
 
 ---
 
-## 🛠️ Installation
+## Quick start
 
-### Linux
+```bash
+# Install (Linux/macOS)
+brew tap skssmd/tap && brew install graft
 
-**Homebrew (macOS/Linux):**
+# Initialize project
+graft init
+
+# Deploy
+graft sync
+
+# Manage
+graft ps                # Status check
+graft logs backend -f   # Live logs
+graft map               # Update DNS
+graft rollback          # Undo deployment
+```
+
+**That's it.** Your app is live with SSL, reverse proxy, and CI/CD.
+
+---
+
+## Installation
+
+<details>
+<summary><strong>Linux/macOS (Homebrew)</strong></summary>
+
 ```bash
 brew tap skssmd/tap
 brew install graft
 ```
+</details>
 
-**Debian/Ubuntu (APT):**
+<details>
+<summary><strong>Debian/Ubuntu</strong></summary>
+
 ```bash
 echo "deb [trusted=yes] https://apt.fury.io/skssmd/ /" | sudo tee /etc/apt/sources.list.d/graft.list
-sudo apt update
-sudo apt install graft
+sudo apt update && sudo apt install graft
 ```
+</details>
 
-**Fedora/RHEL/Amazon Linux (YUM/DNF):**
+<details>
+<summary><strong>Fedora/RHEL/Amazon Linux</strong></summary>
+
 ```bash
 echo "[graft]
 name=Graft Repository
@@ -157,193 +174,144 @@ enabled=1
 gpgcheck=0" | sudo tee /etc/yum.repos.d/graft.repo
 sudo yum install graft
 ```
+</details>
 
-**Snap Store:(under review)**
-```bash
-sudo snap install graft --classic
-```
+<details>
+<summary><strong>Arch Linux (AUR)</strong></summary>
 
-**Arch Linux (AUR):**
 ```bash
 yay -S graft-bin
-# or
-paru -S graft-bin
 ```
+</details>
 
-**Shell Script:**
-```bash
-curl -sSL https://raw.githubusercontent.com/skssmd/Graft/main/bin/install.sh | sh
-```
+<details>
+<summary><strong>Windows</strong></summary>
 
-### Windows
 ```powershell
 powershell -ExecutionPolicy ByPass -Command "iwr -useb https://raw.githubusercontent.com/skssmd/Graft/main/bin/install.ps1 | iex"
 ```
 
-**Or via WinGet:**
+Or via WinGet:
 ```bash
 winget install graft
 ```
+</details>
 
-### From Source
+<details>
+<summary><strong>From source</strong></summary>
+
 ```bash
 git clone https://github.com/skssmd/Graft
 cd Graft
 go build -o graft cmd/graft/main.go
 ```
 
-**Requirements:** Go 1.24+, SSH access to a Linux server, Docker (installed automatically)
+Requires Go 1.24+
+</details>
 
 ---
 
-## 🚀 Quick Start
+## Who is this for?
+
+| You are... | Graft helps you... |
+|------------|-------------------|
+| 🚀 **Solo developer** | Ship side projects without platform bills or complex setups |
+| 👥 **Small team** | Give everyone production access without scary manual SSH |
+| 🏢 **Agency/Freelancer** | Manage 20+ client projects without losing your mind |
+| ☁️ **Cloud optimizer** | Rotate between free tiers, avoid vendor lock-in |
+| 🧪 **Rapid prototyper** | Go from VPS to live SSL URL in under 5 minutes |
+
+### ❌ Not for you if...
+
+- You need multi-region deployments across dozens of servers
+- You're running Kubernetes already (and enjoying it?)
+- You want a web UI instead of CLI
+
+---
+
+## Real-world comparison
+
+| Task | Manual SSH | Dokku | Railway/Render | Graft |
+|------|-----------|-------|----------------|-------|
+| **Initial setup time** | 2-3 hours | 30 mins | 5 mins | 5 mins |
+| **Learning curve** | High | Medium | Low | Minimal |
+| **Monthly cost** | Server only | Server only | Scales with usage | Server only |
+| **Multi-project management** | Nightmare | Manual | Vendor UI | `graft -p` |
+| **Deploy mode flexibility** | Full control | Limited | None | Multiple modes |
+| **Vendor lock-in** | None | None | High | None |
+| **Works with existing Compose** | Yes | Needs buildpacks | No | Yes |
+
+---
+
+## Documentation
+
+**Full docs:** [graftdocs.vercel.app](https://graftdocs.vercel.app)
+
+**Common commands:**
 
 ```bash
-# 1. Initialize project (adds new server or selects existing)
-graft init
-# Choose deployment mode from interactive prompt
-# (or change later with: graft mode)
+# Deployment
+graft init                    # One-time setup
+graft sync                    # Deploy/update
+graft mode                    # Change deployment mode
 
-# 2. Edit graft-compose.yml if needed
+# Management
+graft ps                      # Container status
+graft logs service -f         # Live logs
+graft restart service         # Restart
+graft exec service command    # Run commands
 
-# 3. Deploy
-graft sync
+# Multi-project
+graft -p project1 logs api    # Project-specific
+graft -p project2 restart     # Switch contexts
 
-# 4. Manage like localhost
-graft ps                    # Check status
-graft logs backend          # View logs
-graft restart frontend      # Restart service
-graft map #automatically updates cloudflare dns records
-graft rollback #roll back to previous versions
-```
+# DNS & Servers
+graft dns map                 # Update Cloudflare DNS
+graft registry ls             # List servers
+graft -sh                     # Direct SSH access
 
-**That's it.** Your project is running on the server, managed via familiar commands.
-
----
-
-## 📖 Documentation
-
-**Full documentation:** [graftdocs.vercel.app](https://graftdocs.vercel.app)
-
-**Common workflows:**
-
-```bash
-# Deploy with automatic GitHub Actions CI/CD
-graft init                          # Select git-images mode from prompt
-graft sync                          # Generates workflow, pushes to GitHub
-
-# Change deployment mode
-graft mode                          # Interactive mode selection
-
-# Switch between projects
-graft -p project1 logs              # Project1 logs
-graft -p project1 logs api          # Specific service logs
-graft -p project2 restart           # Restart project2
-
-# DNS management (Cloudflare)
-graft dns map                       # Update DNS to point to current server
-
-# Server management
-graft registry ls                   # List all servers
-graft registry add prod user@ip     # Add new server
-
-# Direct server access
-graft -sh                           # SSH session
-graft exec backend cat /app/log.txt # One-liner commands work
+# Rollback
+graft rollback               # Restore previous deployment
+graft rollback config        # Configure retention
 ```
 
 ---
 
-## 🎯 Use Cases
+## Roadmap
 
-<table width="100%">
-  <tr>
-    <td width="50%" valign="top">
-      <h4>🚀 Solo Developers</h4>
-      <p>Ship side projects fast without the overhead of complex orchestration or managed platform bills.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h4>👥 Small Teams</h4>
-      <p>Create a simple, robust production environment that everyone on the team can understand and manage.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h4>🏢 Agencies & Freelancers</h4>
-      <p>Juggling dozens of clients? Graft manages project context across servers so you don't have to.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h4>☁️ Cloud Migrators</h4>
-      <p>Easily rotate between cloud free tiers and keep your setup portable and vendor-neutral.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h4>🧪 Rapid Prototyping</h4>
-      <p>Go from a "naked" VPS to a live, SSL-secured URL with CI/CD in under 5 minutes.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h4>📈 The "Mid-Stage" App</h4>
-      <p>Perfect for when your app outgrows localhost but doesn't yet need enterprise-grade complexity.</p>
-    </td>
-  </tr>
-</table>
+- [ ] Dev/staging environment separation
+- [ ] Slack/Discord deployment notifications
+- [ ] Built-in health checks and monitoring
+- [ ] Multi-server orchestration
 
-### 🚫 Graft is NOT a match for:
-- **Multi-region/server setup**: Graft is not suited for multi server architectural meshes.
-
+See [issues](https://github.com/skssmd/Graft/issues) for full roadmap.
 
 ---
 
-## 🏷️ What Makes This Different
+## Contributing
 
-**vs Dokku/CapRover:** No web UI, pure CLI. More flexible deployment modes. Better for managing multiple projects across multiple servers.
+Graft is open source and contributions are welcome.
 
-**vs Railway/Render:** Self-hosted. No vendor lock-in. Works anywhere you have SSH. No monthly bills that scale with your success.
+**Before submitting features:** Open an issue to discuss. Graft intentionally stays simple—we evaluate new features against "does this solve a common problem without adding complexity?"
 
-**vs Manual Deployment:** Automated setup, reverse proxy, DNS, CI/CD generation, multi-project management. All the boring infrastructure work is handled.
-
----
-
-## 🔮 Roadmap
-
-Planned features:
-- Dev/prod environment separation
-- Slack/Discord notifications
-- Health checks and monitoring
-
-See the full roadmap in issues or check the pinned discussion.
+Bug reports, documentation improvements, and bug fixes are always appreciated.
 
 ---
 
-## 🤝 Contributing
-
-Graft is open source and contributions are welcome. If you're using it and something breaks or could be better, open an issue.
-
-**Before building new features:** Check if it's on the roadmap or open an issue to discuss. Graft intentionally stays simple—feature requests are evaluated against "does this solve a common problem simply?"
-
----
-
-## 📝 License
+## License
 
 MIT License - see [LICENSE](LICENSE) file.
 
 ---
 
-## 💬 Support & Community
+## Support
 
-- **Issues**: Bug reports and feature requests
-- **Discussions**: Questions, showcase your projects, general chat
-- **GitHub**: Star if you find it useful, helps others discover it
-
----
-
-## ⚠️ Disclaimer
-
-Graft is a tool for developers who understand Docker and servers. It automates deployment, it doesn't make deployment decisions for you. 
-
-Built by a developer tired of manually SSH-ing into servers to check logs. Might be useful to others in the same boat.
+- **Issues:** Bug reports and feature requests
+- **Discussions:** Questions and community chat
+- **Star the repo** if you find it useful 🌟
 
 ---
 
-**TL;DR:** Docker Compose commands that work on remote servers. Deploy your projects without complex setup or paying for managed platforms. Works with any server you can SSH into.
+**Built by a developer tired of manually SSH-ing into servers to restart containers at 2 AM.**
+
+If you know Docker Compose and have a server with SSH, you can use Graft. That's the whole requirement.
