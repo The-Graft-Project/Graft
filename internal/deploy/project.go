@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/skssmd/graft/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 type Service struct {
@@ -22,6 +25,27 @@ type Project struct {
 	DeploymentMode  string             `yaml:"-"` // Not exported to YAML, used for generation logic
 	Services        map[string]Service `yaml:"services"`
 	RollbackBackups int                `yaml:"-"` // Not exported to YAML
+}
+
+func LoadProject(path string) (*Project, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var p Project
+	if err := yaml.Unmarshal(data, &p); err != nil {
+		return nil, err
+	}
+
+	// Fallback for projects where Name/Domain aren't in YAML
+	if p.Name == "" {
+		meta, err := config.LoadProjectMetadata()
+		if err == nil {
+			p.Name = meta.Name
+		}
+	}
+
+	return &p, nil
 }
 
 func GenerateBoilerplate(name, domain, deploymentMode string) *Project {

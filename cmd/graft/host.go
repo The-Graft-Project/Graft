@@ -1,0 +1,309 @@
+package main
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/skssmd/graft/internal/config"
+	"github.com/skssmd/graft/internal/hostinit"
+	"github.com/skssmd/graft/internal/ssh"
+)
+
+func runHostInit() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Println("Error: No config found. Run 'graft init' first.")
+		return
+	}
+
+	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	reader := bufio.NewReader(os.Stdin)
+
+	// Save or update registry name
+	if cfg.Server.RegistryName == "" {
+		fmt.Print("Enter a Registry Name for this server (e.g. prod-us): ")
+		name, _ := reader.ReadString('\n')
+		cfg.Server.RegistryName = strings.TrimSpace(name)
+		config.SaveConfig(cfg, true) // Update local
+	}
+
+	// Register in global registry
+	gCfg, _ := config.LoadGlobalConfig()
+	if gCfg != nil {
+		if gCfg.Servers == nil {
+			gCfg.Servers = make(map[string]config.ServerConfig)
+		}
+		srv := gCfg.Servers[cfg.Server.RegistryName]
+		srv.RegistryName = cfg.Server.RegistryName
+		srv.Host = cfg.Server.Host
+		srv.Port = cfg.Server.Port
+		srv.User = cfg.Server.User
+		srv.KeyPath = cfg.Server.KeyPath
+		if cfg.Server.GraftHookURL != "" {
+			srv.GraftHookURL = cfg.Server.GraftHookURL
+		}
+		gCfg.Servers[cfg.Server.RegistryName] = srv
+		config.SaveGlobalConfig(gCfg)
+	}
+
+	// Ask about shared infrastructure
+	fmt.Println("\n🗄️  Shared Infrastructure Setup")
+
+	fmt.Print("Setup shared Postgres instance? (y/n): ")
+	confirmPG, _ := reader.ReadString('\n')
+	confirmPG = strings.ToLower(strings.TrimSpace(confirmPG))
+	setupPostgres := confirmPG == "y" || confirmPG == "yes"
+
+	var exposePostgres bool
+	if setupPostgres {
+		fmt.Print("  Expose Postgres port (5432) to the internet? (y/n): ")
+		input, _ := reader.ReadString('\n')
+		input = strings.ToLower(strings.TrimSpace(input))
+		exposePostgres = input == "y" || input == "yes"
+	}
+
+	fmt.Print("Setup shared Redis instance? (y/n): ")
+	confirmRedis, _ := reader.ReadString('\n')
+	confirmRedis = strings.ToLower(strings.TrimSpace(confirmRedis))
+	setupRedis := confirmRedis == "y" || confirmRedis == "yes"
+
+	var exposeRedis bool
+	if setupRedis {
+		fmt.Print("  Expose Redis port (6379) to the internet? (y/n): ")
+		input, _ := reader.ReadString('\n')
+		input = strings.ToLower(strings.TrimSpace(input))
+		exposeRedis = input == "y" || input == "yes"
+	}
+
+	// Secure credentials for infrastructure
+	if setupPostgres && cfg.Infra.PostgresPassword == "" {
+		// Try to pull existing from remote server first
+		fmt.Fprintln(os.Stdout, "🔍 Checking for existing infrastructure credentials on remote server...")
+		tmpFile := filepath.Join(os.TempDir(), "host_infra.config")
+		if err := client.DownloadFile(config.RemoteInfraPath, tmpFile); err == nil {
+			data, _ := os.ReadFile(tmpFile)
+			var infraCfg config.InfraConfig
+			if err := json.Unmarshal(data, &infraCfg); err == nil {
+				cfg.Infra.PostgresUser = infraCfg.PostgresUser
+				cfg.Infra.PostgresPassword = infraCfg.PostgresPassword
+				cfg.Infra.PostgresDB = infraCfg.PostgresDB
+				cfg.Infra.PostgresPort = infraCfg.PostgresPort
+				cfg.Infra.RedisPort = infraCfg.RedisPort
+				fmt.Fprintln(os.Stdout, "✅ Existing infrastructure config found and loaded from remote server")
+			}
+			os.Remove(tmpFile)
+		} else {
+			fmt.Println("🔐 Generating new secure credentials for Postgres...")
+			cfg.Infra.PostgresUser = strings.ToLower("graft_admin_" + config.GenerateRandomString(4))
+			cfg.Infra.PostgresPassword = config.GenerateRandomString(24)
+			cfg.Infra.PostgresDB = strings.ToLower("graft_master_" + config.GenerateRandomString(4))
+		}
+	}
+
+	err = hostinit.InitHost(client, setupPostgres, setupRedis, exposePostgres, exposeRedis,
+		cfg.Infra.PostgresUser, cfg.Infra.PostgresPassword, cfg.Infra.PostgresDB,
+		os.Stdout, os.Stderr)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Println("\n✅ Host initialized successfully!")
+}
+
+func runHostClean() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Println("Error: No config found.")
+		return
+	}
+
+	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	fmt.Println("🧹 Cleaning Docker caches and unused resources...")
+
+	cleanupCmds := []struct {
+		name string
+		cmd  string
+	}{
+		{"Stopped containers", "sudo docker container prune -f"},
+		{"Dangling images", "sudo docker image prune -f"},
+		{"Build cache", "sudo docker builder prune -f"},
+		{"Unused volumes", "sudo docker volume prune -f"},
+		{"Unused networks", "sudo docker network prune -f"},
+	}
+
+	for _, cleanup := range cleanupCmds {
+		fmt.Printf("  Cleaning %s...\n", cleanup.name)
+		if err := client.RunCommand(cleanup.cmd, os.Stdout, os.Stderr); err != nil {
+			fmt.Printf("  ⚠️  Warning: %v\n", err)
+		}
+	}
+
+	fmt.Println("\n✅ Cleanup complete!")
+}
+func runHostSelfDestruct() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Println("Error: No config found.")
+		return
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println("\n⚠️  WARNING: DESTRUCTIVE OPERATION ⚠️")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("This will PERMANENTLY DELETE all Graft infrastructure on:\n")
+	fmt.Printf("  Host: %s\n", cfg.Server.Host)
+	fmt.Printf("  Registry: %s\n\n", cfg.Server.RegistryName)
+	fmt.Println("The following will be destroyed:")
+	fmt.Println("  • Gateway (Traefik) - including SSL certificates")
+	fmt.Println("  • Infrastructure (Postgres, Redis) - including ALL DATA")
+	fmt.Println("  • All Projects - including volumes and images")
+	fmt.Println("  • All Docker networks created by Graft")
+	fmt.Println("  • All files in /opt/graft/")
+	fmt.Println("\n⚠️  THIS CANNOT BE UNDONE! ⚠️")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("\nType 'DESTROY' (all caps) to confirm: ")
+	confirm, _ := reader.ReadString('\n')
+	confirm = strings.TrimSpace(confirm)
+
+	if confirm != "DESTROY" {
+		fmt.Println("❌ Self-destruct aborted. No changes made.")
+		return
+	}
+
+	fmt.Print("\nAre you absolutely sure? Type 'YES' to proceed: ")
+	finalConfirm, _ := reader.ReadString('\n')
+	finalConfirm = strings.TrimSpace(finalConfirm)
+
+	if finalConfirm != "YES" {
+		fmt.Println("❌ Self-destruct aborted. No changes made.")
+		return
+	}
+
+	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	fmt.Println("\n💥 Initiating self-destruct sequence...")
+
+	// Step 1: Get list of all projects
+	fmt.Println("\n[1/7] 📋 Discovering projects...")
+	tmpFile := filepath.Join(os.TempDir(), "projects_list.json")
+	var projects []string
+	if err := client.DownloadFile(config.RemoteProjectsPath, tmpFile); err == nil {
+		data, _ := os.ReadFile(tmpFile)
+		var projectMap map[string]string
+		if json.Unmarshal(data, &projectMap) == nil {
+			for name := range projectMap {
+				projects = append(projects, name)
+			}
+		}
+		os.Remove(tmpFile)
+	}
+
+	if len(projects) > 0 {
+		fmt.Printf("      Found %d project(s): %v\n", len(projects), projects)
+	} else {
+		fmt.Println("      No projects found")
+	}
+
+	// Step 2: Tear down all projects
+	if len(projects) > 0 {
+		fmt.Println("\n[2/7] 🗑️  Destroying all projects...")
+		for _, project := range projects {
+			fmt.Printf("      Destroying project: %s\n", project)
+			projectPath := fmt.Sprintf("/opt/graft/projects/%s", project)
+
+			// Stop and remove all containers, volumes, and networks for this project
+			destroyCmd := fmt.Sprintf("cd %s && sudo docker compose down -v --remove-orphans 2>/dev/null || true", projectPath)
+			client.RunCommand(destroyCmd, os.Stdout, os.Stderr)
+		}
+	} else {
+		fmt.Println("\n[2/7] ⏭️  Skipping projects (none found)")
+	}
+
+	// Step 3: Tear down infrastructure (Postgres, Redis)
+	fmt.Println("\n[3/7] 🗄️  Destroying infrastructure (Postgres, Redis)...")
+	infraCmd := "cd /opt/graft/infra && sudo docker compose down -v --remove-orphans 2>/dev/null || true"
+	client.RunCommand(infraCmd, os.Stdout, os.Stderr)
+
+	// Step 4: Tear down gateway (Traefik)
+	fmt.Println("\n[4/7] 🌐 Destroying gateway (Traefik)...")
+	gatewayCmd := "cd /opt/graft/gateway && sudo docker compose down -v --remove-orphans 2>/dev/null || true"
+	client.RunCommand(gatewayCmd, os.Stdout, os.Stderr)
+
+	// Step 5: Remove all Graft-related images
+	fmt.Println("\n[5/7] 🖼️  Removing all Docker images...")
+	pruneImagesCmd := "sudo docker image prune -af"
+	client.RunCommand(pruneImagesCmd, os.Stdout, os.Stderr)
+
+	// Step 6: Remove Graft networks
+	fmt.Println("\n[6/7] 🔌 Removing Graft networks...")
+	removeNetworkCmd := "sudo docker network rm graft-public 2>/dev/null || true"
+	client.RunCommand(removeNetworkCmd, os.Stdout, os.Stderr)
+
+	// Step 7: Remove all Graft files
+	fmt.Println("\n[7/7] 📁 Removing all Graft files...")
+	removeFilesCmd := "sudo rm -rf /opt/graft"
+	if err := client.RunCommand(removeFilesCmd, os.Stdout, os.Stderr); err != nil {
+		fmt.Printf("      ⚠️  Warning: %v\n", err)
+	}
+
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("💥 Self-destruct complete!")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("\nThe server has been cleaned of all Graft infrastructure.")
+	fmt.Println("Docker and Docker Compose remain installed.")
+	fmt.Println("\n💡 You can run 'graft host init' to set up a fresh environment.")
+}
+
+func runHostShell(commandArgs []string) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Println("Error: No config found.")
+		return
+	}
+
+	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	if len(commandArgs) == 0 {
+		// Interactive SSH
+		fmt.Printf("💻 Starting interactive SSH session on '%s' (%s)...\n", cfg.Server.RegistryName, cfg.Server.Host)
+		if err := client.InteractiveSession(); err != nil {
+			fmt.Printf("SSH session error: %v\n", err)
+		}
+	} else {
+		// Non-interactive command
+		cmdStr := strings.Join(commandArgs, " ")
+		fmt.Printf("🚀 Executing on '%s': %s\n", cfg.Server.RegistryName, cmdStr)
+		if err := client.RunCommand(cmdStr, os.Stdout, os.Stderr); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		}
+	}
+}
