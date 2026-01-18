@@ -304,7 +304,6 @@ graft rollback config        # Configure retention
 - [ ] Slack/Discord deployment notifications
 - [ ] Graft-Hook configurations
 
-See [issues](https://github.com/skssmd/Graft/issues) for full roadmap.
 
 ---
 
@@ -335,4 +334,5 @@ MIT License - see [LICENSE](LICENSE) file.
 **Built by developers tired of installing 500MB web UIs just to deploy a Docker Compose app.**
 
 If you know Docker Compose and have a server with SSH, you can use Graft. That's the whole requirement. Your server's CPU and RAM stay focused on your actual applications, not on management software.
+
 
