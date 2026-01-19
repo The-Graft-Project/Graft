@@ -34,12 +34,6 @@ func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr 
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
 
 	// Perform backup before sync if configured
-	// Parse compose file to get service configurations
-	localFile := "graft-compose.yml"
-	compose, err := ParseComposeFile(localFile)
-	if err != nil {
-		return fmt.Errorf("failed to parse compose file: %v", err)
-	}
 
 	if !strings.HasPrefix(p.DeploymentMode, "git") {
 		if err := PerformBackup(client, p, stdout, stderr); err != nil {
@@ -56,7 +50,11 @@ func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr 
 
 	if doCompose {
 		// Find and parse the local graft-compose.yml file
-
+		localFile := "graft-compose.yml"
+		compose, err := ParseComposeFile(localFile)
+		if err != nil {
+			return fmt.Errorf("failed to parse compose file: %v", err)
+		}
 		if _, err := os.Stat(localFile); err != nil {
 			return fmt.Errorf("project file not found: %s", localFile)
 		}
@@ -66,6 +64,7 @@ func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr 
 
 		// Process environments and handle git-images mode transformation
 		for sName := range compose.Services {
+
 			sPtr := compose.Services[sName]
 			ProcessServiceEnvironment(sName, &sPtr, secrets)
 
@@ -114,7 +113,11 @@ func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr 
 
 	// Upload env directory if it exists
 	if doEnv {
-
+		localFile := "docker-compose.yml"
+		compose, err := ParseComposeFile(localFile)
+		if err != nil {
+			return fmt.Errorf("failed to parse compose file: %v", err)
+		}
 		fmt.Fprintf(stdout, "📤 Uploading environment files...\n")
 
 		for service := range compose.Services {
