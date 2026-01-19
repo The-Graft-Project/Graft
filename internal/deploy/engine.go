@@ -18,10 +18,10 @@ import (
 
 // DockerComposeFile represents the structure we need from docker-compose.yml
 type DockerComposeFile struct {
-	Version  string                       `yaml:"version"`
-	Services map[string]ComposeService    `yaml:"services"`
-	Networks map[string]interface{}       `yaml:"networks,omitempty"`
-	Volumes  map[string]interface{}       `yaml:"volumes,omitempty"`
+	Version  string                    `yaml:"version"`
+	Services map[string]ComposeService `yaml:"services"`
+	Networks map[string]interface{}    `yaml:"networks,omitempty"`
+	Volumes  map[string]interface{}    `yaml:"volumes,omitempty"`
 }
 
 type ComposeService struct {
@@ -37,8 +37,6 @@ type BuildConfig struct {
 	Context    string `yaml:"context"`
 	Dockerfile string `yaml:"dockerfile,omitempty"`
 }
-
-
 
 // ParseComposeFile parses docker-compose.yml to extract service configurations
 func ParseComposeFile(path string) (*DockerComposeFile, error) {
@@ -105,7 +103,7 @@ func ProcessServiceEnvironment(serviceName string, service *ComposeService, secr
 
 	// Update service to use env_file and clear environment
 	service.Environment = nil
-	
+
 	// Keep existing env_files if any
 	service.EnvFiles = append(service.EnvFiles, "./"+filepath.ToSlash(envFileRelPath))
 
@@ -176,7 +174,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 	}
 
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
-	
+
 	// Update project metadata with current remote path
 	meta := &config.ProjectMetadata{
 		Name:       p.Name,
@@ -185,7 +183,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 	if err := config.SaveProjectMetadata(meta); err != nil {
 		fmt.Fprintf(stdout, "Warning: Could not save project metadata: %v\n", err)
 	}
-	
+
 	// Find and parse the local graft.yml file
 	localFile := "graft-compose.yml"
 	if _, err := os.Stat(localFile); err != nil {
@@ -209,7 +207,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 
 	// Check if this is an image-based service (no build context)
 	isImageBased := service.Image != "" && service.Build == nil
-	
+
 	// Load secrets
 	secrets, _ := config.LoadSecrets()
 
@@ -245,7 +243,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 		fmt.Fprintf(stdout, "📤 Uploading environment files...\n")
 		remoteEnvDir := path.Join(remoteDir, "env")
 		client.RunCommand(fmt.Sprintf("mkdir -p %s", remoteEnvDir), stdout, stderr)
-		
+
 		// Map local env/* to remote env/*
 		files, _ := os.ReadDir("env")
 		for _, f := range files {
@@ -267,7 +265,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 	if isImageBased {
 		// For image-based services, handle pull and restart
 		fmt.Fprintf(stdout, "🖼️  Image-based service detected: %s\n", service.Image)
-		
+
 		if heave {
 			return nil // Heave sync ends here
 		}
@@ -327,13 +325,13 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 		// Handle git-based sync if enabled
 		var actualContextPath string
 		var cleanupFunc func()
-		
+
 		if useGit {
 			// Check if git repo exists
 			if !git.HasGitRepo(".") {
 				return fmt.Errorf("--git flag used but no git repository found (.git directory missing)")
 			}
-			
+
 			// Determine branch
 			branch := gitBranch
 			if branch == "" {
@@ -342,7 +340,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 					return fmt.Errorf("failed to get current branch: %v", err)
 				}
 			}
-			
+
 			// Determine commit
 			commit := gitCommit
 			if commit == "" {
@@ -351,40 +349,40 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 					return fmt.Errorf("failed to get latest commit: %v", err)
 				}
 			}
-			
+
 			fmt.Fprintf(stdout, "📦 Git mode: branch=%s, commit=%s\n", branch, commit[:7])
-			
+
 			// Create temp directory for git export
 			tempDir, err := os.MkdirTemp("", "graft-git-*")
 			if err != nil {
 				return fmt.Errorf("failed to create temp directory: %v", err)
 			}
-			
+
 			// Setup cleanup
 			cleanupFunc = func() {
 				os.RemoveAll(tempDir)
 			}
 			defer cleanupFunc()
-			
+
 			// Export git commit to tarball (filter to service context path)
 			tarballPath := filepath.Join(tempDir, "export.tar.gz")
 			contextRelPath := contextPath
 			if filepath.IsAbs(contextPath) {
 				contextRelPath, _ = filepath.Rel(".", contextPath)
 			}
-			
+
 			err = git.CreateArchive(".", commit, tarballPath, []string{contextRelPath + "/"})
 			if err != nil {
 				return fmt.Errorf("failed to create git archive: %v", err)
 			}
-			
+
 			// Extract to temp directory
 			extractDir := filepath.Join(tempDir, "extracted")
 			err = git.ExtractArchive(tarballPath, extractDir)
 			if err != nil {
 				return fmt.Errorf("failed to extract git archive: %v", err)
 			}
-			
+
 			// Update context path to extracted directory
 			actualContextPath = filepath.Join(extractDir, contextRelPath)
 			fmt.Fprintf(stdout, "📦 Exported git commit to temp directory\n")
@@ -400,21 +398,21 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 
 		// Use rsync to sync the directory
 		serviceDir := path.Join(remoteDir, contextName)
-		
+
 		// Ensure remote directory exists
 		if err := client.RunCommand(fmt.Sprintf("mkdir -p %s", serviceDir), stdout, stderr); err != nil {
 			return fmt.Errorf("failed to create remote directory: %v", err)
 		}
-		
+
 		// Try rsync first, fall back to tarball if rsync is not available
 		fmt.Fprintf(stdout, "📤 Uploading changes from %s...\n", actualContextPath)
 		rsyncErr := client.RsyncDirectory(actualContextPath, serviceDir, stdout, stderr)
-		
+
 		if rsyncErr != nil {
 			// Check if error is due to rsync not being found
 			if strings.Contains(rsyncErr.Error(), "rsync not found") {
 				fmt.Fprintf(stdout, "⚠️  Rsync not available, falling back to tarball method...\n")
-				
+
 				// Fall back to tarball method
 				tarballPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s.tar.gz", p.Name, contextName))
 				if err := createTarball(actualContextPath, tarballPath); err != nil {
@@ -430,7 +428,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 				}
 
 				// Extract on server
-				extractCmd := fmt.Sprintf("rm -rf %s && mkdir -p %s && tar -xzf %s -C %s && rm %s", 
+				extractCmd := fmt.Sprintf("rm -rf %s && mkdir -p %s && tar -xzf %s -C %s && rm %s",
 					serviceDir, serviceDir, remoteTarball, serviceDir, remoteTarball)
 				fmt.Fprintf(stdout, "📂 Extracting on server...\n")
 				if err := client.RunCommand(extractCmd, stdout, stderr); err != nil {
@@ -457,7 +455,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 		pruneCmd := "sudo docker builder prune -f"
 		client.RunCommand(pruneCmd, stdout, stderr) // Ignore errors
 	}
-	
+
 	// Build the service (separate command to show build logs)
 	fmt.Fprintf(stdout, "🔨 Building %s...\n", serviceName)
 	var buildCmd string
@@ -466,11 +464,11 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 	} else {
 		buildCmd = fmt.Sprintf("cd %s && sudo docker compose build %s", remoteDir, serviceName)
 	}
-	
+
 	if err := client.RunCommand(buildCmd, stdout, stderr); err != nil {
 		return fmt.Errorf("build failed: %v", err)
 	}
-	
+
 	// Start the service
 	fmt.Fprintf(stdout, "� Starting %s...\n", serviceName)
 	upCmd := fmt.Sprintf("cd %s && sudo docker compose up -d %s", remoteDir, serviceName)
@@ -497,7 +495,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 	}
 
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
-	
+
 	// Update project metadata with current remote path
 	meta := &config.ProjectMetadata{
 		Name:       p.Name,
@@ -506,7 +504,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 	if err := config.SaveProjectMetadata(meta); err != nil {
 		fmt.Fprintf(stdout, "Warning: Could not save project metadata: %v\n", err)
 	}
-	
+
 	if err := client.RunCommand(fmt.Sprintf("sudo mkdir -p %s && sudo chown $USER:$USER %s", remoteDir, remoteDir), stdout, stderr); err != nil {
 		return err
 	}
@@ -526,13 +524,13 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 	// Handle git-based sync if enabled
 	var workingDir string
 	var cleanupFunc func()
-	
+
 	if useGit {
 		// Check if git repo exists
 		if !git.HasGitRepo(".") {
 			return fmt.Errorf("--git flag used but no git repository found (.git directory missing)")
 		}
-		
+
 		// Determine branch
 		branch := gitBranch
 		if branch == "" {
@@ -541,7 +539,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 				return fmt.Errorf("failed to get current branch: %v", err)
 			}
 		}
-		
+
 		// Determine commit
 		commit := gitCommit
 		if commit == "" {
@@ -550,35 +548,35 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 				return fmt.Errorf("failed to get latest commit: %v", err)
 			}
 		}
-		
+
 		fmt.Fprintf(stdout, "📦 Git mode: branch=%s, commit=%s\n", branch, commit[:7])
-		
+
 		// Create temp directory for git export
 		tempDir, err := os.MkdirTemp("", "graft-git-*")
 		if err != nil {
 			return fmt.Errorf("failed to create temp directory: %v", err)
 		}
-		
+
 		// Setup cleanup
 		cleanupFunc = func() {
 			os.RemoveAll(tempDir)
 		}
 		defer cleanupFunc()
-		
+
 		// Export entire git commit to tarball
 		tarballPath := filepath.Join(tempDir, "export.tar.gz")
 		err = git.CreateArchive(".", commit, tarballPath, nil) // nil = export everything
 		if err != nil {
 			return fmt.Errorf("failed to create git archive: %v", err)
 		}
-		
+
 		// Extract to temp directory
 		extractDir := filepath.Join(tempDir, "extracted")
 		err = git.ExtractArchive(tarballPath, extractDir)
 		if err != nil {
 			return fmt.Errorf("failed to extract git archive: %v", err)
 		}
-		
+
 		workingDir = extractDir
 		fmt.Fprintf(stdout, "📦 Exported git commit to temp directory\n")
 	} else {
@@ -596,7 +594,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 			if !filepath.IsAbs(contextPath) {
 				contextPath = filepath.Clean(contextPath)
 			}
-			
+
 			// If using git, resolve context path relative to workingDir
 			if useGit {
 				contextPath = filepath.Join(workingDir, contextPath)
@@ -625,21 +623,21 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 
 			// Use rsync to sync the directory
 			serviceDir := path.Join(remoteDir, contextName)
-			
+
 			// Ensure remote directory exists
 			if err := client.RunCommand(fmt.Sprintf("mkdir -p %s", serviceDir), stdout, stderr); err != nil {
 				return fmt.Errorf("failed to create remote directory: %v", err)
 			}
-			
+
 			// Try rsync first, fall back to tarball if rsync is not available
 			fmt.Fprintf(stdout, "  📤 Uploading changes from %s...\n", contextPath)
 			rsyncErr := client.RsyncDirectory(contextPath, serviceDir, stdout, stderr)
-			
+
 			if rsyncErr != nil {
 				// Check if error is due to rsync not being found
 				if strings.Contains(rsyncErr.Error(), "rsync not found") {
 					fmt.Fprintf(stdout, "  ⚠️  Rsync not available, falling back to tarball method...\n")
-					
+
 					// Fall back to tarball method
 					tarballPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s.tar.gz", p.Name, contextName))
 					if err := createTarball(contextPath, tarballPath); err != nil {
@@ -655,7 +653,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 					}
 
 					// Extract on server
-					extractCmd := fmt.Sprintf("mkdir -p %s && tar -xzf %s -C %s && rm %s", 
+					extractCmd := fmt.Sprintf("mkdir -p %s && tar -xzf %s -C %s && rm %s",
 						serviceDir, remoteTarball, serviceDir, remoteTarball)
 					fmt.Fprintf(stdout, "  📂 Extracting on server...\n")
 					if err := client.RunCommand(extractCmd, stdout, stderr); err != nil {
@@ -675,7 +673,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 	for sName := range compose.Services {
 		sPtr := compose.Services[sName]
 		ProcessServiceEnvironment(sName, &sPtr, secrets)
-		
+
 		// For serverbuild services, update build context to point to uploaded code
 		mode := getGraftMode(sPtr.Labels)
 		if mode == "serverbuild" && sPtr.Build != nil {
@@ -707,7 +705,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 		fmt.Fprintf(stdout, "\n📤 Uploading environment files...\n")
 		remoteEnvDir := path.Join(remoteDir, "env")
 		client.RunCommand(fmt.Sprintf("mkdir -p %s", remoteEnvDir), stdout, stderr)
-		
+
 		files, _ := os.ReadDir("env")
 		for _, f := range files {
 			if !f.IsDir() {
@@ -729,13 +727,13 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 		fmt.Fprintln(stdout, "✅ Heave sync complete (upload only)!")
 		return nil
 	}
-	
+
 	// Build and start services
 	if noCache {
 		fmt.Fprintln(stdout, "🧹 Clearing build cache for fresh build...")
 		pruneCmd := "sudo docker builder prune -f"
 		client.RunCommand(pruneCmd, stdout, stderr) // Ignore errors
-		
+
 		fmt.Fprintln(stdout, "🔨 Building services (no cache)...")
 		if err := client.RunCommand(fmt.Sprintf("cd %s && sudo docker compose build --no-cache", remoteDir), stdout, stderr); err != nil {
 			return fmt.Errorf("build failed: %v", err)
@@ -764,7 +762,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 // ExtractTraefikHosts extracts all Host() rules from Traefik labels
 func ExtractTraefikHosts(labels []string) []string {
 	var hosts []string
-	
+
 	for _, label := range labels {
 		// Look for traefik.http.routers.*.rule labels
 		if strings.Contains(label, "traefik.http.routers.") && strings.Contains(label, ".rule=") {
@@ -773,9 +771,9 @@ func ExtractTraefikHosts(labels []string) []string {
 			if len(parts) != 2 {
 				continue
 			}
-			
+
 			rule := parts[1]
-			
+
 			// Extract Host(`domain.com`) patterns
 			// Support both Host(`...`) and Host("...")
 			for {
@@ -783,10 +781,10 @@ func ExtractTraefikHosts(labels []string) []string {
 				if startIdx == -1 {
 					break
 				}
-				
+
 				// Find the matching closing parenthesis
 				rule = rule[startIdx+5:] // Skip "Host("
-				
+
 				var host string
 				if strings.HasPrefix(rule, "`") {
 					// Backtick format: Host(`domain.com`)
@@ -807,14 +805,14 @@ func ExtractTraefikHosts(labels []string) []string {
 				} else {
 					break
 				}
-				
+
 				if host != "" {
 					hosts = append(hosts, host)
 				}
 			}
 		}
 	}
-	
+
 	return hosts
 }
 
@@ -880,7 +878,7 @@ func RestoreRollback(client *ssh.Client, p *Project, backupTimestamp string, std
 
 	// 2. Identify images and stop services
 	fmt.Fprintf(stdout, "🛑 Stopping current services and clearing images...\n")
-	
+
 	// Get tags from the RESTORED compose file
 	outTags, _ := client.GetCommandOutput(fmt.Sprintf("cd %s && sudo docker compose config --images", remoteDir))
 	imageTags := strings.Split(strings.TrimSpace(outTags), "\n")
@@ -985,14 +983,14 @@ func RestoreServiceRollback(client *ssh.Client, p *Project, backupTimestamp stri
 
 	// 6. Identify images and stop specific service
 	fmt.Fprintf(stdout, "🛑 Stopping service '%s' and clearing images...\n", serviceName)
-	
+
 	// Get tags for this specific service from restored compose
 	// We need to be careful to only RMI the image this service uses
 	_, _ = client.GetCommandOutput(fmt.Sprintf("cd %s && sudo docker compose config --images | grep -E '%s' || true", remoteDir, serviceName))
 	// Note: grep -E 'serviceName' might match multiple if substrings match, but more accurate would be:
 	// image=$(sudo docker compose config | yq '.services."%s".image')
 	// Since we don't have yq, we'll try to find it via config config.
-	
+
 	client.RunCommand(fmt.Sprintf("cd %s && sudo docker compose stop %s && sudo docker compose rm -f %s", remoteDir, serviceName, serviceName), stdout, stderr)
 
 	// 7. Load images from backup and fix tags

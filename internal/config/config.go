@@ -74,7 +74,7 @@ func LoadConfig() (*GraftConfig, error) {
 	// Try local first
 	localPath := GetLocalConfigPath()
 	cfg, err := loadFile(localPath)
-	
+
 	// Try global if local fails or if local is missing Cloudflare
 	globalPath := GetGlobalConfigPath()
 	gCfg, gErr := loadFile(globalPath)
@@ -138,8 +138,12 @@ func LoadGlobalConfig() (*GlobalConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	if cfg.Servers == nil { cfg.Servers = make(map[string]ServerConfig) }
-	if cfg.Projects == nil { cfg.Projects = make(map[string]string) }
+	if cfg.Servers == nil {
+		cfg.Servers = make(map[string]ServerConfig)
+	}
+	if cfg.Projects == nil {
+		cfg.Projects = make(map[string]string)
+	}
 
 	return &cfg, nil
 }
@@ -184,7 +188,7 @@ func SaveGlobalCloudflare(apiToken, zoneID, domain string) error {
 	if err != nil {
 		cfg = &GraftConfig{}
 	}
-	
+
 	if cfg.CloudflareAccounts == nil {
 		cfg.CloudflareAccounts = make(map[string]CloudflareConfig)
 	}
@@ -194,7 +198,7 @@ func SaveGlobalCloudflare(apiToken, zoneID, domain string) error {
 		ZoneID:   zoneID,
 		Domain:   domain,
 	}
-	
+
 	return SaveConfig(cfg, false)
 }
 
@@ -203,7 +207,7 @@ func SaveSecret(key, value string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	
+
 	path := filepath.Join(dir, "secrets.env")
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -241,12 +245,12 @@ func LoadSecrets() (map[string]string, error) {
 
 // ProjectMetadata stores local project information
 type ProjectMetadata struct {
-	Name           string `json:"name"`
-	RemotePath     string `json:"remote_path"`
-	Initialized    bool   `json:"initialized"`
-	DeploymentMode string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild"
-	GraftHookURL   string `json:"graft_hook_url,omitempty"`
-	RollbackBackups int	`json:"rollback_backups,omitempty"`
+	Name            string `json:"name"`
+	RemotePath      string `json:"remote_path"`
+	Initialized     bool   `json:"initialized"`
+	DeploymentMode  string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild"
+	GraftHookURL    string `json:"graft_hook_url,omitempty"`
+	RollbackBackups int    `json:"rollback_backups,omitempty"`
 }
 
 // SaveProjectMetadata saves project metadata to .graft/project.json and registers it globally
@@ -270,7 +274,9 @@ func SaveProjectMetadata(meta *ProjectMetadata) error {
 	absPath, _ := filepath.Abs(".")
 	gCfg, _ := LoadGlobalConfig()
 	if gCfg != nil {
-		if gCfg.Projects == nil { gCfg.Projects = make(map[string]string) }
+		if gCfg.Projects == nil {
+			gCfg.Projects = make(map[string]string)
+		}
 		gCfg.Projects[meta.Name] = absPath
 		SaveGlobalConfig(gCfg)
 	}
