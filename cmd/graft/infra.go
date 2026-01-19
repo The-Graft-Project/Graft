@@ -49,8 +49,8 @@ func runInfraInit(typ, name string) {
 	}
 
 	fmt.Printf("\n✅ %s '%s' initialized!\n", typ, name)
-	fmt.Printf("Secret saved: %s\n", secretKey)
-	fmt.Printf("Connection URL: %s\n", url)
+	fmt.Printf("Secret saved at ./graft/secrets.env")
+	
 }
 
 func runInfra(args []string) {
