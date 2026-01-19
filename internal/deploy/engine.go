@@ -38,26 +38,7 @@ type BuildConfig struct {
 	Dockerfile string `yaml:"dockerfile,omitempty"`
 }
 
-func LoadProject(path string) (*Project, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var p Project
-	if err := yaml.Unmarshal(data, &p); err != nil {
-		return nil, err
-	}
 
-	// Fallback for projects where Name/Domain aren't in YAML
-	if p.Name == "" {
-		meta, err := config.LoadProjectMetadata()
-		if err == nil {
-			p.Name = meta.Name
-		}
-	}
-
-	return &p, nil
-}
 
 // ParseComposeFile parses docker-compose.yml to extract service configurations
 func ParseComposeFile(path string) (*DockerComposeFile, error) {
