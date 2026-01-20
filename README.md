@@ -319,7 +319,7 @@ Bug reports, documentation improvements, and bug fixes are always appreciated.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file.
+Apache 2.0 License - see [LICENSE](LICENSE) file.
 
 ---
 
@@ -334,5 +334,6 @@ MIT License - see [LICENSE](LICENSE) file.
 **Built by developers tired of installing 500MB web UIs just to deploy a Docker Compose app.**
 
 If you know Docker Compose and have a server with SSH, you can use Graft. That's the whole requirement. Your server's CPU and RAM stay focused on your actual applications, not on management software.
+
 
 
