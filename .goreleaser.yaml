@@ -60,7 +60,6 @@ winget:
     copyright_url: https://github.com/skssmd/Graft/blob/main/LICENSE
     release_notes_url: https://github.com/skssmd/Graft/releases/tag/v{{.Version}}
     
-    
     author: skssmd
     
     # Installation notes
@@ -78,7 +77,7 @@ winget:
     
     # Repository configuration
     repository:
-      owner: microsoft
+      owner: skssmd                    # ← CHANGED: Your fork, not microsoft
       name: winget-pkgs
       branch: "{{.ProjectName}}-{{.Version}}-{{.ShortCommit}}"
       token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
@@ -86,7 +85,7 @@ winget:
         enabled: true
         draft: false
         base:
-          owner: microsoft
+          owner: microsoft             # ← PR still targets microsoft
           name: winget-pkgs
           branch: master
     
@@ -98,7 +97,6 @@ winget:
     
     # Skip upload for testing
     skip_upload: false
-
 release:
   draft: false
   prerelease: auto
