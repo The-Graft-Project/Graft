@@ -1,8 +1,10 @@
 package executors
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
@@ -18,11 +20,7 @@ func (e *Executor) RunInfraInit(typ, name string) {
 		return
 	}
 
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
 	if err != nil {
@@ -33,7 +31,7 @@ func (e *Executor) RunInfraInit(typ, name string) {
 
 	var url string
 	if typ == "postgres" {
-		url, err = infra.InitPostgres(client, name, cfg, os.Stdout, os.Stderr)
+		url, err = infra.InitPostgres(client, name, os.Stdout, os.Stderr)
 	} else {
 		url, err = infra.InitRedis(client, name, os.Stdout, os.Stderr)
 	}
@@ -69,9 +67,9 @@ func (e *Executor) RunInfra(args []string) {
 
 	// Handle backup subcommand
 	if typ == "db" && len(args) > 1 && args[1] == "backup" {
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Println("Error: No config found.")
+		cfg := e
+		if cfg.Server.Host == "" {
+			fmt.Println("Error: No server configuration found.")
 			return
 		}
 
@@ -82,7 +80,7 @@ func (e *Executor) RunInfra(args []string) {
 		}
 		defer client.Close()
 
-		if err := infra.SetupDBBackup(client, cfg, os.Stdout, os.Stderr); err != nil {
+		if err := infra.SetupDBBackup(client, os.Stdout, os.Stderr); err != nil {
 			fmt.Printf("Error setting up database backup: %v\n", err)
 		}
 		return
@@ -102,11 +100,7 @@ func (e *Executor) RunInfra(args []string) {
 		return
 	}
 
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
 	if err != nil {
@@ -115,39 +109,55 @@ func (e *Executor) RunInfra(args []string) {
 	}
 	defer client.Close()
 
+	// Fetch infra config from remote server
+	tmpFile := filepath.Join(os.TempDir(), "infra_config.json")
+	defer os.Remove(tmpFile)
+	
+	if err := client.DownloadFile(config.RemoteInfraPath, tmpFile); err != nil {
+		fmt.Println("Error: Could not fetch infra config from remote server.")
+		fmt.Println("Make sure infrastructure has been initialized with 'graft host init'")
+		return
+	}
+
+	data, err := os.ReadFile(tmpFile)
+	if err != nil {
+		fmt.Printf("Error reading infra config: %v\n", err)
+		return
+	}
+
+	var infraCfg config.InfraConfig
+	if err := json.Unmarshal(data, &infraCfg); err != nil {
+		fmt.Printf("Error parsing infra config: %v\n", err)
+		return
+	}
+
 	// Update port in config
 	if typ == "db" {
-		cfg.Infra.PostgresPort = portVal
+		infraCfg.PostgresPort = portVal
 	} else {
-		cfg.Infra.RedisPort = portVal
+		infraCfg.RedisPort = portVal
 	}
 
 	// Re-run infra setup
 	fmt.Printf("🔄 Updating %s port to: %s\n", typ, portVal)
 
-	setupPG := cfg.Infra.PostgresUser != ""
+	setupPG := infraCfg.PostgresUser != ""
 	setupRedis := true // Assume redis exists if we are here, or based on previous host init
 
 	// We need to know if redis was setup. Usually both are.
 	// For now, assume both if they have been initialized.
 
-	err = hostinit.SetupInfra(client, setupPG, setupRedis, cfg.Infra, os.Stdout, os.Stderr)
+	err = hostinit.SetupInfra(client, setupPG, setupRedis, infraCfg, os.Stdout, os.Stderr)
 	if err != nil {
 		fmt.Printf("Error updating infrastructure: %v\n", err)
 		return
 	}
 
-	// Save updated config locally
-	config.SaveConfig(cfg, true)
 	fmt.Println("\n✅ Infrastructure updated successfully!")
 }
 
 func (e *Executor) RunInfraReload() {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
 	if err != nil {

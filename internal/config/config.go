@@ -44,9 +44,7 @@ type CloudflareConfig struct {
 	Domain   string `json:"domain,omitempty"`
 }
 
-type GraftConfig struct {
-	Server             ServerConfig                `json:"server"`
-	Infra              InfraConfig                 `json:"infra,omitempty"`
+type Cloudflare struct {
 	Cloudflare         CloudflareConfig            `json:"cloudflare,omitempty"`
 	CloudflareAccounts map[string]CloudflareConfig `json:"cloudflare_accounts,omitempty"`
 }
@@ -66,56 +64,23 @@ func GetGlobalConfigPath() string {
 	return filepath.Join(home, ".graft", "config.json")
 }
 
-func GetLocalConfigPath() string {
-	return filepath.Join(".graft", "config.json")
-}
-
-func LoadConfig() (*GraftConfig, error) {
-	// Try local first
-	localPath := GetLocalConfigPath()
-	cfg, err := loadFile(localPath)
+func LoadCloudFlareConfig() (*Cloudflare, error) {
 
 	// Try global if local fails or if local is missing Cloudflare
 	globalPath := GetGlobalConfigPath()
 	gCfg, gErr := loadFile(globalPath)
 
-	if err != nil {
-		return gCfg, gErr
-	}
+	return gCfg, gErr
 
-	// Merge global cloudflare info if local is missing it
-	if gErr == nil && gCfg != nil {
-		if cfg.Cloudflare.APIToken == "" {
-			cfg.Cloudflare.APIToken = gCfg.Cloudflare.APIToken
-		}
-		if cfg.Cloudflare.ZoneID == "" {
-			cfg.Cloudflare.ZoneID = gCfg.Cloudflare.ZoneID
-		}
-		if cfg.Cloudflare.Domain == "" {
-			cfg.Cloudflare.Domain = gCfg.Cloudflare.Domain
-		}
-
-		// Merge accounts map
-		if cfg.CloudflareAccounts == nil {
-			cfg.CloudflareAccounts = make(map[string]CloudflareConfig)
-		}
-		for k, v := range gCfg.CloudflareAccounts {
-			if _, exists := cfg.CloudflareAccounts[k]; !exists {
-				cfg.CloudflareAccounts[k] = v
-			}
-		}
-	}
-
-	return cfg, nil
 }
 
-func loadFile(path string) (*GraftConfig, error) {
+func loadFile(path string) (*Cloudflare, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var cfg GraftConfig
+	var cfg Cloudflare
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
@@ -163,30 +128,11 @@ func SaveGlobalConfig(cfg *GlobalConfig) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func SaveConfig(cfg *GraftConfig, local bool) error {
-	path := GetGlobalConfigPath()
-	if local {
-		path = GetLocalConfigPath()
-	}
-
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0644)
-}
-
 func SaveGlobalCloudflare(apiToken, zoneID, domain string) error {
 	globalPath := GetGlobalConfigPath()
 	cfg, err := loadFile(globalPath)
 	if err != nil {
-		cfg = &GraftConfig{}
+		cfg = &Cloudflare{}
 	}
 
 	if cfg.CloudflareAccounts == nil {
@@ -199,7 +145,7 @@ func SaveGlobalCloudflare(apiToken, zoneID, domain string) error {
 		Domain:   domain,
 	}
 
-	return SaveConfig(cfg, false)
+	return nil
 }
 
 func SaveSecret(key, value string) error {
@@ -249,19 +195,54 @@ type ProjectMetadata struct {
 	RemotePath      string `json:"remote_path"`
 	Initialized     bool   `json:"initialized"`
 	DeploymentMode  string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild"
+	GitBranch       string `json:"git_branch,omitempty"`
 	GraftHookURL    string `json:"graft_hook_url,omitempty"`
 	RollbackBackups int    `json:"rollback_backups,omitempty"`
+	Registry        string `json:"env,omitempty"`
+}
+type ProjectEnv struct {
+	Name            string `json:"name"`
+	DeploymentMode  string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild"
+	RollbackBackups int    `json:"rollback_backups,omitempty"`
+
+	Env map[string]*ProjectMetadata
 }
 
-// SaveProjectMetadata saves project metadata to .graft/project.json and registers it globally
-func SaveProjectMetadata(meta *ProjectMetadata) error {
+// SaveProjectMetadata saves project metadata to .graft/project.json
+func SaveProjectMetadata(envname string, meta *ProjectMetadata) error {
 	dir := ".graft"
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
 	path := filepath.Join(dir, "project.json")
-	data, err := json.MarshalIndent(meta, "", "  ")
+
+	// 1. Load existing data or initialize new
+	projectData := ProjectEnv{
+		Env: make(map[string]*ProjectMetadata),
+	}
+
+	// Try to read existing file to avoid overwriting other environments
+	if fileData, err := os.ReadFile(path); err == nil {
+		json.Unmarshal(fileData, &projectData)
+	}
+	if projectData.Name == "" {
+		projectData.Name = meta.Name
+		projectData.DeploymentMode = meta.DeploymentMode
+		projectData.RollbackBackups = meta.RollbackBackups
+	} else {
+		meta.Name = projectData.Name
+		meta.DeploymentMode = projectData.DeploymentMode
+		meta.RollbackBackups = projectData.RollbackBackups
+	}
+	// 2. Update the specific environment
+	if !strings.HasSuffix(meta.Name, "-"+envname) {
+		meta.Name = meta.Name + "-" + envname
+	}
+	projectData.Env[envname] = meta
+
+	// 3. Marshal the entire map (so you don't lose other environments)
+	data, err := json.MarshalIndent(projectData, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -270,14 +251,14 @@ func SaveProjectMetadata(meta *ProjectMetadata) error {
 		return err
 	}
 
-	// Register globally
+	// 4. Register globally
 	absPath, _ := filepath.Abs(".")
 	gCfg, _ := LoadGlobalConfig()
 	if gCfg != nil {
 		if gCfg.Projects == nil {
 			gCfg.Projects = make(map[string]string)
 		}
-		gCfg.Projects[meta.Name] = absPath
+		gCfg.Projects[projectData.Name] = absPath
 		SaveGlobalConfig(gCfg)
 	}
 
@@ -285,17 +266,17 @@ func SaveProjectMetadata(meta *ProjectMetadata) error {
 }
 
 // LoadProjectMetadata loads project metadata from .graft/project.json
-func LoadProjectMetadata() (*ProjectMetadata, error) {
+func LoadProjectMetadata(name string) (*ProjectMetadata, error) {
 	path := filepath.Join(".graft", "project.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var meta ProjectMetadata
-	if err := json.Unmarshal(data, &meta); err != nil {
+	var ProjectEnv ProjectEnv
+	if err := json.Unmarshal(data, &ProjectEnv); err != nil {
 		return nil, err
 	}
-
-	return &meta, nil
+	meta := ProjectEnv.Env[name]
+	return meta, nil
 }

@@ -27,7 +27,7 @@ type Project struct {
 	RollbackBackups int                `yaml:"-"` // Not exported to YAML
 }
 
-func LoadProject(path string) (*Project, error) {
+func LoadProject(env string, path string) (*Project, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -39,7 +39,7 @@ func LoadProject(path string) (*Project, error) {
 
 	// Fallback for projects where Name/Domain aren't in YAML
 	if p.Name == "" {
-		meta, err := config.LoadProjectMetadata()
+		meta, err := config.LoadProjectMetadata(env)
 		if err == nil {
 			p.Name = meta.Name
 		}
@@ -70,7 +70,7 @@ func GenerateBoilerplate(name, domain, deploymentMode string) *Project {
 func (p *Project) Save(dir string) error {
 	filename := "graft-compose.yml"
 	path := filepath.Join(dir, filename)
-	
+
 	// Determine the graft mode label based on deployment mode
 	var graftMode string
 	switch p.DeploymentMode {
@@ -87,7 +87,7 @@ func (p *Project) Save(dir string) error {
 	default:
 		graftMode = "serverbuild" // Default to serverbuild for backward compatibility
 	}
-	
+
 	// Generate a valid docker-compose.yml file that can be used directly
 	template := `# Docker Compose Configuration for: %s
 # Domain: %s
@@ -297,12 +297,12 @@ networks:
 #   3. Update Traefik labels (change service name)
 #   4. Add to networks: [graft-public]
 `
-	
+
 	content := fmt.Sprintf(template,
 		p.Name, p.Domain, p.DeploymentMode, // Header info
-		graftMode, // Frontend graft.mode
+		graftMode,                                                                  // Frontend graft.mode
 		p.Domain, p.Name, p.Domain, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Frontend: domain, name-router, domain-host, name-priority, name-router-service, name-service, name-service-port, name-router-entrypoints, name-router-tls
-		graftMode, // Backend graft.mode
+		graftMode,                                                                                          // Backend graft.mode
 		p.Domain, p.Name, p.Domain, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Backend: domain, name-router, domain-host, name-priority, name-middleware, name-router-middleware, name-middleware-strip, name-router-service, name-service, name-service-port, name-router-entrypoints, name-router-tls
 		p.Domain, p.Domain, p.Domain, // Footer
 	)
@@ -324,7 +324,7 @@ networks:
 func EnsureGitignore(dir string) error {
 	gitignorePath := filepath.Join(dir, ".gitignore")
 	gitignoreEntries := []string{"graft-compose.yml", ".graft/", "env/"}
-	
+
 	var existingContent string
 	if data, err := os.ReadFile(gitignorePath); err == nil {
 		existingContent = string(data)
@@ -366,17 +366,21 @@ func EnsureGitignore(dir string) error {
 }
 
 // GenerateWorkflows creates .github/workflows directory and populates it with CI and Deploy templates
-func GenerateWorkflows(p *Project, remoteURL string, mode string, webhook string) error {
+func GenerateWorkflows(p *Project,env string, remoteURL string, mode string, webhook string) error {
 	fmt.Println("received workflow mode: ", mode)
 	workflowsDir := filepath.Join(".github", "workflows")
 	if err := os.MkdirAll(workflowsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create workflows directory: %v", err)
 	}
 
+	// Fetch project metadata to get the branch
+	meta, _ := config.LoadProjectMetadata(env)
+	gitBranch := "main"
+	if meta != nil && meta.GitBranch != "" {
+		gitBranch = meta.GitBranch
+	}
+
 	// Extract owner and repo from remote URL
-	// Handles:
-	// https://github.com/owner/repo.git
-	// git@github.com:owner/repo.git
 	ownerRepo := ""
 	if strings.HasPrefix(remoteURL, "https://") {
 		parts := strings.Split(strings.TrimSuffix(remoteURL, ".git"), "/")
@@ -399,7 +403,7 @@ func GenerateWorkflows(p *Project, remoteURL string, mode string, webhook string
 		var triggers string
 		var condition string
 		deployType := "image"
-		
+
 		if mode == "git-images" {
 			triggers = `  workflow_run:
     workflows: ["CI/CD Pipeline"]
@@ -407,8 +411,14 @@ func GenerateWorkflows(p *Project, remoteURL string, mode string, webhook string
       - completed`
 			condition = "if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}"
 		} else {
-			triggers = `  push:
-    branches: [ main, develop ]`
+			// Use the selected branch for push triggers
+			triggerBranches := "[ " + gitBranch + " ]"
+			if gitBranch == "main" || gitBranch == "master" || gitBranch == "develop" {
+				triggerBranches = "[ main, develop ]"
+			}
+
+			triggers = fmt.Sprintf(`  push:
+    branches: %s`, triggerBranches)
 			condition = ""
 			if mode == "git-repo-serverbuild" {
 				deployType = "repo"
@@ -431,7 +441,7 @@ func GenerateWorkflows(p *Project, remoteURL string, mode string, webhook string
 		deployTemplate := `name: Deploy
 
 on:
-%%s
+%s
   release:
     types: [published]
   workflow_dispatch:
@@ -440,7 +450,7 @@ jobs:
   deploy:
     name: Deploy via Webhook
     runs-on: ubuntu-latest
-    %%s
+    %s
     environment: CI CD
     
     steps:
@@ -449,7 +459,7 @@ jobs:
           curl -X POST %s \
             -H "Content-Type: application/json" \
             -d '{
-              "project": "%%%%s",
+              "project": "%s",
               "repository": "${{ github.event.repository.name }}",
               "token": "${{ secrets.GITHUB_TOKEN }}",
               "user": "${{ github.actor }}",
@@ -458,12 +468,12 @@ jobs:
             }'
 `
 		deployPath := filepath.Join(workflowsDir, "deploy.yml")
-		deployContent := fmt.Sprintf(deployTemplate, hookURL, deployType)
-		// Now format the triggers and condition into the content (%%s -> %s)
-		deployContent = fmt.Sprintf(deployContent, triggers, condition)
-		// Now format the project name into the content (%%%%s -> %s)
-		deployContent = fmt.Sprintf(deployContent, p.Name)
-		
+		projFull := p.Name
+		if !strings.HasSuffix(projFull, "-"+env) {
+			projFull = fmt.Sprintf("%s-%s", projFull, env)
+		}
+		deployContent := fmt.Sprintf(deployTemplate, triggers, condition, hookURL, projFull, deployType)
+
 		if err := os.WriteFile(deployPath, []byte(deployContent), 0644); err != nil {
 			return fmt.Errorf("failed to write deploy workflow: %v", err)
 		}
@@ -471,23 +481,29 @@ jobs:
 
 	// 2. Generate CI Workflow (only for git-images)
 	if mode == "git-images" {
-		ciTemplate := `name: CI/CD Pipeline
+		// Use the selected branch for push triggers
+		triggerBranches := "[ " + gitBranch + " ]"
+		if gitBranch == "main" || gitBranch == "master" || gitBranch == "develop" {
+			triggerBranches = "[ main, develop ]"
+		}
+
+		ciTemplate := fmt.Sprintf(`name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: %s
   pull_request:
-    branches: [ main, develop ]
+    branches: %s
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
-%s
-`
+%%s
+`, triggerBranches, triggerBranches)
 		jobsContent := ""
-		
+
 		// Parse compose file to see which services have builds
 		compose, err := ParseComposeFile("graft-compose.yml")
 		if err != nil {

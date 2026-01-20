@@ -16,7 +16,7 @@ import (
 )
 
 // SyncService syncs only a specific service
-func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, heave, useGit bool, gitBranch, gitCommit string, stdout, stderr io.Writer) error {
+func SyncService(envname string, client *ssh.Client, p *Project, serviceName string, noCache, heave, useGit bool, gitBranch, gitCommit string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "🎯 Syncing service: %s\n", serviceName)
 
 	// Perform backup before sync if configured
@@ -24,14 +24,18 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 		fmt.Fprintf(stdout, "⚠️  Backup warning: %v\n", err)
 	}
 
-	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
+	remoteProjName := p.Name
+	if !strings.HasSuffix(remoteProjName, "-"+envname) {
+		remoteProjName = fmt.Sprintf("%s-%s", remoteProjName, envname)
+	}
+	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", remoteProjName)
 
 	// Update project metadata with current remote path
 	meta := &config.ProjectMetadata{
 		Name:       p.Name,
 		RemotePath: remoteDir,
 	}
-	if err := config.SaveProjectMetadata(meta); err != nil {
+	if err := config.SaveProjectMetadata(envname, meta); err != nil {
 		fmt.Fprintf(stdout, "Warning: Could not save project metadata: %v\n", err)
 	}
 
@@ -186,9 +190,15 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 			// Determine branch
 			branch := gitBranch
 			if branch == "" {
-				branch, err = git.GetCurrentBranch(".")
-				if err != nil {
-					return fmt.Errorf("failed to get current branch: %v", err)
+				// Fallback to metadata branch if available
+				meta, _ := config.LoadProjectMetadata(envname)
+				if meta != nil && meta.GitBranch != "" {
+					branch = meta.GitBranch
+				} else {
+					branch, err = git.GetCurrentBranch(".")
+					if err != nil {
+						return fmt.Errorf("failed to get current branch: %v", err)
+					}
 				}
 			}
 
@@ -337,7 +347,7 @@ func SyncService(client *ssh.Client, p *Project, serviceName string, noCache, he
 	return nil
 }
 
-func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch, gitCommit string, stdout, stderr io.Writer) error {
+func Sync(envname string, client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch, gitCommit string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "🚀 Syncing project: %s\n", p.Name)
 
 	// Perform backup before sync if configured
@@ -345,14 +355,18 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 		fmt.Fprintf(stdout, "⚠️  Backup warning: %v\n", err)
 	}
 
-	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
+	remoteProjName := p.Name
+	if !strings.HasSuffix(remoteProjName, "-"+envname) {
+		remoteProjName = fmt.Sprintf("%s-%s", remoteProjName, envname)
+	}
+	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", remoteProjName)
 
 	// Update project metadata with current remote path
 	meta := &config.ProjectMetadata{
 		Name:       p.Name,
 		RemotePath: remoteDir,
 	}
-	if err := config.SaveProjectMetadata(meta); err != nil {
+	if err := config.SaveProjectMetadata(envname, meta); err != nil {
 		fmt.Fprintf(stdout, "Warning: Could not save project metadata: %v\n", err)
 	}
 
@@ -385,9 +399,15 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 		// Determine branch
 		branch := gitBranch
 		if branch == "" {
-			branch, err = git.GetCurrentBranch(".")
-			if err != nil {
-				return fmt.Errorf("failed to get current branch: %v", err)
+			// Fallback to metadata branch if available
+			meta, _ := config.LoadProjectMetadata(envname)
+			if meta != nil && meta.GitBranch != "" {
+				branch = meta.GitBranch
+			} else {
+				branch, err = git.GetCurrentBranch(".")
+				if err != nil {
+					return fmt.Errorf("failed to get current branch: %v", err)
+				}
 			}
 		}
 
@@ -611,7 +631,7 @@ func Sync(client *ssh.Client, p *Project, noCache, heave, useGit bool, gitBranch
 }
 
 // SyncComposeOnly uploads only the docker-compose.yml and restarts services
-func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr io.Writer, doCompose bool, doEnv bool) error {
+func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool, stdout, stderr io.Writer, doCompose bool, doEnv bool) error {
 	if !doCompose && !doEnv {
 		return fmt.Errorf("at least one of doCompose or doEnv must be true")
 	}
@@ -627,7 +647,11 @@ func SyncComposeOnly(client *ssh.Client, p *Project, heave bool, stdout, stderr 
 	}
 	fmt.Fprintf(stdout, "📄 Syncing %s file only...\n", printstr)
 
-	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", p.Name)
+	remoteProjName := p.Name
+	if !strings.HasSuffix(remoteProjName, "-"+envname) {
+		remoteProjName = fmt.Sprintf("%s-%s", remoteProjName, envname)
+	}
+	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", remoteProjName)
 
 	// Perform backup before sync if configured
 

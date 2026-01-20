@@ -15,7 +15,7 @@ import (
 )
 
 func (e *Executor) RunRollback() {
-	meta, err := config.LoadProjectMetadata()
+	meta, err := config.LoadProjectMetadata(e.Env)
 	if err != nil {
 		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
 		return
@@ -26,11 +26,7 @@ func (e *Executor) RunRollback() {
 		return
 	}
 
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	fmt.Printf("🔍 Connecting to %s (%s)...\n", cfg.Server.RegistryName, cfg.Server.Host)
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
@@ -88,17 +84,13 @@ func (e *Executor) RunRollback() {
 }
 
 func (e *Executor) RunRollbackConfig() {
-	meta, err := config.LoadProjectMetadata()
+	meta, err := config.LoadProjectMetadata(e.Env)
 	if err != nil {
 		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
 		return
 	}
 
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	fmt.Printf("🔄 Rollback Configuration for project: %s\n", meta.Name)
 	fmt.Printf("Current versions to keep: %d\n", meta.RollbackBackups)
@@ -172,7 +164,7 @@ func (e *Executor) RunRollbackConfig() {
 
 	// 2. Update local metadata
 	meta.RollbackBackups = newVersionToKeep
-	if err := config.SaveProjectMetadata(meta); err != nil {
+	if err := config.SaveProjectMetadata(e.Env, meta); err != nil {
 		fmt.Printf("⚠️  Warning: Could not save local metadata: %v\n", err)
 	}
 
@@ -188,7 +180,7 @@ func (e *Executor) RunRollbackConfig() {
 }
 
 func (e *Executor) RunServiceRollback(serviceName string) {
-	meta, err := config.LoadProjectMetadata()
+	meta, err := config.LoadProjectMetadata(e.Env)
 	if err != nil {
 		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
 		return
@@ -199,11 +191,7 @@ func (e *Executor) RunServiceRollback(serviceName string) {
 		return
 	}
 
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	fmt.Printf("🔍 Connecting to %s (%s)...\n", cfg.Server.RegistryName, cfg.Server.Host)
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)

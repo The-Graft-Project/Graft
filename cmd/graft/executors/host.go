@@ -14,11 +14,7 @@ import (
 )
 
 func (e *Executor) RunHostInit() {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found. Run 'graft init' first.")
-		return
-	}
+	cfg := e
 
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
 	if err != nil {
@@ -34,7 +30,7 @@ func (e *Executor) RunHostInit() {
 		fmt.Print("Enter a Registry Name for this server (e.g. prod-us): ")
 		name, _ := reader.ReadString('\n')
 		cfg.Server.RegistryName = strings.TrimSpace(name)
-		config.SaveConfig(cfg, true) // Update local
+
 	}
 
 	// Register in global registry
@@ -84,34 +80,29 @@ func (e *Executor) RunHostInit() {
 		input = strings.ToLower(strings.TrimSpace(input))
 		exposeRedis = input == "y" || input == "yes"
 	}
-
+	var infraCfg config.InfraConfig
 	// Secure credentials for infrastructure
-	if setupPostgres && cfg.Infra.PostgresPassword == "" {
+	if setupPostgres {
 		// Try to pull existing from remote server first
 		fmt.Fprintln(os.Stdout, "🔍 Checking for existing infrastructure credentials on remote server...")
 		tmpFile := filepath.Join(os.TempDir(), "host_infra.config")
+
 		if err := client.DownloadFile(config.RemoteInfraPath, tmpFile); err == nil {
 			data, _ := os.ReadFile(tmpFile)
-			var infraCfg config.InfraConfig
+
 			if err := json.Unmarshal(data, &infraCfg); err == nil {
-				cfg.Infra.PostgresUser = infraCfg.PostgresUser
-				cfg.Infra.PostgresPassword = infraCfg.PostgresPassword
-				cfg.Infra.PostgresDB = infraCfg.PostgresDB
-				cfg.Infra.PostgresPort = infraCfg.PostgresPort
-				cfg.Infra.RedisPort = infraCfg.RedisPort
-				fmt.Fprintln(os.Stdout, "✅ Existing infrastructure config found and loaded from remote server")
 			}
 			os.Remove(tmpFile)
 		} else {
 			fmt.Println("🔐 Generating new secure credentials for Postgres...")
-			cfg.Infra.PostgresUser = strings.ToLower("graft_admin_" + config.GenerateRandomString(4))
-			cfg.Infra.PostgresPassword = config.GenerateRandomString(24)
-			cfg.Infra.PostgresDB = strings.ToLower("graft_master_" + config.GenerateRandomString(4))
+			infraCfg.PostgresUser = strings.ToLower("graft_admin_" + config.GenerateRandomString(4))
+			infraCfg.PostgresPassword = config.GenerateRandomString(24)
+			infraCfg.PostgresDB = strings.ToLower("graft_master_" + config.GenerateRandomString(4))
 		}
 	}
 
 	err = hostinit.InitHost(client, setupPostgres, setupRedis, exposePostgres, exposeRedis,
-		cfg.Infra.PostgresUser, cfg.Infra.PostgresPassword, cfg.Infra.PostgresDB,
+		infraCfg.PostgresUser, infraCfg.PostgresPassword, infraCfg.PostgresDB,
 		os.Stdout, os.Stderr)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -122,11 +113,7 @@ func (e *Executor) RunHostInit() {
 }
 
 func (e *Executor) RunHostClean() {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
 	if err != nil {
@@ -158,11 +145,7 @@ func (e *Executor) RunHostClean() {
 	fmt.Println("\n✅ Cleanup complete!")
 }
 func (e *Executor) RunHostSelfDestruct() {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -279,11 +262,7 @@ func (e *Executor) RunHostSelfDestruct() {
 }
 
 func (e *Executor) RunHostShell(commandArgs []string) {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
 	if err != nil {

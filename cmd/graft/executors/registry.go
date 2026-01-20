@@ -194,11 +194,13 @@ func (e *Executor) RunProjectsLs(registryName string) {
 		fmt.Println(strings.Repeat("-", 80))
 		for name, path := range gCfg.Projects {
 			serverName := "unknown"
-			localCfgPath := filepath.Join(path, ".graft", "config.json")
-			if data, err := os.ReadFile(localCfgPath); err == nil {
-				var lCfg config.GraftConfig
-				if err := json.Unmarshal(data, &lCfg); err == nil {
-					serverName = lCfg.Server.RegistryName
+			localMetaPath := filepath.Join(path, ".graft", "project.json")
+			if data, err := os.ReadFile(localMetaPath); err == nil {
+				var projectEnv config.ProjectEnv
+				if err := json.Unmarshal(data, &projectEnv); err == nil {
+					if prodMeta, exists := projectEnv.Env["prod"]; exists && prodMeta.Registry != "" {
+						serverName = prodMeta.Registry
+					}
 				}
 			}
 			fmt.Printf("%-20s %-15s %-40s\n", name, serverName, path)

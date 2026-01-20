@@ -2,6 +2,7 @@ package infra
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,55 +13,44 @@ import (
 	"github.com/skssmd/graft/internal/ssh"
 )
 
-func SetupDBBackup(client *ssh.Client, cfg *config.GraftConfig, stdout, stderr io.Writer) error {
+func SetupDBBackup(client *ssh.Client, stdout, stderr io.Writer) error {
 	reader := bufio.NewReader(os.Stdin)
 
-	if cfg.Infra.S3 == nil {
-		fmt.Fprintln(stdout, "\n☁️  S3 Backup Configuration")
-		fmt.Fprintln(stdout, "----------------------------")
+	fmt.Fprintln(stdout, "\n☁️  S3 Backup Configuration")
+	fmt.Fprintln(stdout, "----------------------------")
 
-		s3 := &config.S3Config{}
+	s3 := &config.S3Config{}
 
-		fmt.Fprint(stdout, "S3 Endpoint (leave empty for AWS): ")
-		endpoint, _ := reader.ReadString('\n')
-		s3.Endpoint = strings.TrimSpace(endpoint)
+	fmt.Fprint(stdout, "S3 Endpoint (leave empty for AWS): ")
+	endpoint, _ := reader.ReadString('\n')
+	s3.Endpoint = strings.TrimSpace(endpoint)
 
-		fmt.Fprint(stdout, "S3 Region (e.g., us-east-1): ")
-		region, _ := reader.ReadString('\n')
-		s3.Region = strings.TrimSpace(region)
-		if s3.Region == "" {
-			return fmt.Errorf("S3 region is required")
-		}
+	fmt.Fprint(stdout, "S3 Region (e.g., us-east-1): ")
+	region, _ := reader.ReadString('\n')
+	s3.Region = strings.TrimSpace(region)
+	if s3.Region == "" {
+		return fmt.Errorf("S3 region is required")
+	}
 
-		fmt.Fprint(stdout, "S3 Bucket Name: ")
-		bucket, _ := reader.ReadString('\n')
-		s3.Bucket = strings.TrimSpace(bucket)
-		if s3.Bucket == "" {
-			return fmt.Errorf("S3 bucket name is required")
-		}
+	fmt.Fprint(stdout, "S3 Bucket Name: ")
+	bucket, _ := reader.ReadString('\n')
+	s3.Bucket = strings.TrimSpace(bucket)
+	if s3.Bucket == "" {
+		return fmt.Errorf("S3 bucket name is required")
+	}
 
-		fmt.Fprint(stdout, "S3 Access Key: ")
-		accessKey, _ := reader.ReadString('\n')
-		s3.AccessKey = strings.TrimSpace(accessKey)
-		if s3.AccessKey == "" {
-			return fmt.Errorf("S3 access key is required")
-		}
+	fmt.Fprint(stdout, "S3 Access Key: ")
+	accessKey, _ := reader.ReadString('\n')
+	s3.AccessKey = strings.TrimSpace(accessKey)
+	if s3.AccessKey == "" {
+		return fmt.Errorf("S3 access key is required")
+	}
 
-		fmt.Fprint(stdout, "S3 Secret Key: ")
-		secretKey, _ := reader.ReadString('\n')
-		s3.SecretKey = strings.TrimSpace(secretKey)
-		if s3.SecretKey == "" {
-			return fmt.Errorf("S3 secret key is required")
-		}
-
-		cfg.Infra.S3 = s3
-
-		fmt.Fprint(stdout, "❓ Save these credentials locally in .graft/config.json? (y/n): ")
-		saveLocal, _ := reader.ReadString('\n')
-		if strings.ToLower(strings.TrimSpace(saveLocal)) == "y" {
-			config.SaveConfig(cfg, true)
-			fmt.Fprintln(stdout, "✅ Saved setup locally")
-		}
+	fmt.Fprint(stdout, "S3 Secret Key: ")
+	secretKey, _ := reader.ReadString('\n')
+	s3.SecretKey = strings.TrimSpace(secretKey)
+	if s3.SecretKey == "" {
+		return fmt.Errorf("S3 secret key is required")
 	}
 
 	fmt.Fprint(stdout, "❓ Setup a daily backup schedule (2 AM)? (y/n): ")
@@ -91,7 +81,7 @@ AWS_SECRET_ACCESS_KEY=%s
 AWS_DEFAULT_REGION=%s
 S3_BUCKET=%s
 S3_ENDPOINT=%s
-`, cfg.Infra.S3.AccessKey, cfg.Infra.S3.SecretKey, cfg.Infra.S3.Region, cfg.Infra.S3.Bucket, cfg.Infra.S3.Endpoint)
+`, s3.AccessKey, s3.SecretKey, s3.Region, s3.Bucket, s3.Endpoint)
 
 	tmpEnv := filepath.Join(os.TempDir(), ".backup.env")
 	os.WriteFile(tmpEnv, []byte(envContent), 0600)
@@ -123,11 +113,21 @@ rm /tmp/${FILENAME}
 
 echo "✅ Backup complete: ${FILENAME}"
 `
-	// We need to inject POSTGRES_USER if it's not the default 'graft'
-	pgUser := cfg.Infra.PostgresUser
-	if pgUser == "" {
-		pgUser = "graft"
+	// Fetch infra config from remote server to get PostgresUser
+	tmpConfigFile := filepath.Join(os.TempDir(), "infra_config_backup.json")
+	defer os.Remove(tmpConfigFile)
+	
+	pgUser := "graft" // default
+	if err := client.DownloadFile(config.RemoteInfraPath, tmpConfigFile); err == nil {
+		data, err := os.ReadFile(tmpConfigFile)
+		if err == nil {
+			var infraCfg config.InfraConfig
+			if err := json.Unmarshal(data, &infraCfg); err == nil && infraCfg.PostgresUser != "" {
+				pgUser = infraCfg.PostgresUser
+			}
+		}
 	}
+	
 	backupScript = strings.Replace(backupScript, "${POSTGRES_USER:-graft}", pgUser, 1)
 
 	tmpScript := filepath.Join(os.TempDir(), "backup.sh")
@@ -152,7 +152,7 @@ echo "✅ Backup complete: ${FILENAME}"
 	if doSchedule {
 		fmt.Fprintln(stdout, "📅 Setting up cron job...")
 		cronJob := "0 2 * * * /opt/graft/infra/backup.sh >> /var/log/graft-backup.log 2>&1"
-		
+
 		// Check if cron job already exists
 		checkCmd := "crontab -l | grep -q '/opt/graft/infra/backup.sh'"
 		if err := client.RunCommand(checkCmd, nil, nil); err != nil {

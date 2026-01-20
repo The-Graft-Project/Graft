@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/skssmd/graft/cmd/graft/executors"
 	"github.com/skssmd/graft/internal/config"
@@ -69,7 +70,57 @@ func main() {
 		}
 		fmt.Printf("📂 Context: %s (%s)\n", projectName, projectPath)
 	}
+	e.Env = "prod"
 
+	// Load project metadata and fetch server from global registry for default prod environment
+	projectmeta, err := config.LoadProjectMetadata("prod")
+	if err == nil && projectmeta != nil && projectmeta.Registry != "" {
+		gCfg, _ := config.LoadGlobalConfig()
+		if gCfg != nil {
+			server := gCfg.Servers[projectmeta.Registry]
+			e.Server = server
+		}
+	}
+
+	if args[0] == "env" {
+		//handle wrong input
+		if len(args) < 2 {
+			fmt.Println("Usage: graft env <command>")
+			fmt.Println("Usage: graft -p <projectname> env <envname> <command>")
+			fmt.Println("")
+			fmt.Println("Usage: graft env --new <envname>")
+			fmt.Println("Usage: graft -p <projectname> env --new <envname>")
+			return
+		}
+		//handle new env
+		if args[1] == "--new" {
+			name := args[2]
+			
+			if strings.HasSuffix(strings.ToLower(name), "prod")  {
+				fmt.Println("Error: Cannot create env named prod")
+				return
+			}
+			e.NewEnv(name)
+			return
+		}
+		env := args[1]
+		args = args[2:]
+		//load project metadata
+		projectmeta, err := config.LoadProjectMetadata(env)
+		if err != nil {
+			fmt.Printf("Failed to load project metadata: %v\n", err)
+			return
+		}
+
+		e.Env = env
+		servername := projectmeta.Registry
+		gCfg, _ := config.LoadGlobalConfig()
+
+		server := gCfg.Servers[servername]
+
+		e.Server = server
+		fmt.Println(e)
+	}
 	command := args[0]
 
 	switch command {
@@ -190,6 +241,18 @@ func main() {
 		} else {
 			e.RunMap(args[1:])
 		}
+	case "env":
+
+		///--new name
+		//asks server
+		//ask domain
+		//setup server
+		//.env.name
+
+		// name action
+		// regular actions(all commands)
+		//for env it takes //.env.name and uses that
+
 	default:
 		// Handle the --pull flag as requested in the specific format
 		// foundPull := false

@@ -18,17 +18,21 @@ import (
 )
 
 type Executor struct {
+	Env    string
+	Server config.ServerConfig
 }
 
 func GetExecutor() *Executor {
-	return &Executor{}
+	return &Executor{
+		Env: "prod",
+	}
 }
 
 func (e *Executor) RunMode() {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Load project metadata
-	meta, err := config.LoadProjectMetadata()
+	meta, err := config.LoadProjectMetadata(e.Env)
 	if err != nil {
 		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
 		return
@@ -77,10 +81,21 @@ func (e *Executor) RunMode() {
 		return
 	}
 
+	var gitBranch string
+	if strings.HasPrefix(newMode, "git") {
+		branch, err := e.promptGitBranch(reader)
+		if err != nil {
+			fmt.Printf("\n❌ %v\n", err)
+			return
+		}
+		gitBranch = branch
+	}
+
 	// Update project metadata
 	meta.DeploymentMode = newMode
+	meta.GitBranch = gitBranch
 	meta.Initialized = false // Reset to false when mode changes
-	if err := config.SaveProjectMetadata(meta); err != nil {
+	if err := config.SaveProjectMetadata(e.Env, meta); err != nil {
 		fmt.Printf("Error: Could not save project metadata: %v\n", err)
 		return
 	}
@@ -89,7 +104,7 @@ func (e *Executor) RunMode() {
 	fmt.Println("\n🔄 Regenerating graft-compose.yml with new deployment mode...")
 
 	// Load existing compose to get project name and domain
-	p, err := deploy.LoadProject("graft-compose.yml")
+	p, err := deploy.LoadProject(e.Env, "graft-compose.yml")
 	if err != nil {
 		fmt.Printf("Warning: Could not load existing compose file: %v\n", err)
 		fmt.Println("You may need to manually update graft-compose.yml labels.")
@@ -147,6 +162,7 @@ func (e *Executor) RunInit(args []string) {
 	var host, user, keyPath string
 	var port int
 	var registryName string
+	var gitBranch string
 
 	if gCfg != nil && len(gCfg.Servers) > 0 {
 		fmt.Println("\n📋 Available servers in registry:")
@@ -241,12 +257,14 @@ func (e *Executor) RunInit(args []string) {
 			fmt.Printf("\n⚠️  Project '%s' already exists in your local registry:\n", projName)
 			fmt.Printf("   Path: %s\n", existingLocalPath)
 
-			// Try to get host info from existing local path
-			localCfgPath := filepath.Join(existingLocalPath, ".graft", "config.json")
-			if data, err := os.ReadFile(localCfgPath); err == nil {
-				var exCfg config.GraftConfig
-				if err := json.Unmarshal(data, &exCfg); err == nil {
-					fmt.Printf("   Target Host: %s (%s)\n", exCfg.Server.RegistryName, exCfg.Server.Host)
+			// Try to get registry info from existing local path
+			localMetaPath := filepath.Join(existingLocalPath, ".graft", "project.json")
+			if data, err := os.ReadFile(localMetaPath); err == nil {
+				var projectEnv config.ProjectEnv
+				if err := json.Unmarshal(data, &projectEnv); err == nil {
+					if prodMeta, exists := projectEnv.Env["prod"]; exists && prodMeta.Registry != "" {
+						fmt.Printf("   Target Registry: %s\n", prodMeta.Registry)
+					}
 				}
 			}
 
@@ -259,6 +277,11 @@ func (e *Executor) RunInit(args []string) {
 			}
 			fmt.Println("✅ Local overwrite confirmed.")
 		}
+	}
+
+	projFull := projName
+	if !strings.HasSuffix(projFull, "-"+e.Env) {
+		projFull = fmt.Sprintf("%s-%s", projFull, e.Env)
 	}
 
 	var versionToKeep int
@@ -315,21 +338,21 @@ func (e *Executor) RunInit(args []string) {
 			os.Remove(tmpFile)
 		}
 
-		if entry, exists := remoteProjects[projName]; exists && !force {
+		if entry, exists := remoteProjects[projFull]; exists && !force {
 			var path string
 			if s, ok := entry.(string); ok {
 				path = s
 			} else if m, ok := entry.(map[string]interface{}); ok {
 				path, _ = m["path"].(string)
 			}
-			fmt.Printf("❌ Conflict: Project '%s' already exists on this server at '%s'.\n", projName, path)
+			fmt.Printf("❌ Conflict: Project '%s' already exists on this server at '%s'.\n", projFull, path)
 			fmt.Println("👉 Use 'graft init -f' or '--force' to overwrite this registration.")
 			return
 		}
 
 		// Update remote registry (local record for now, will upload after boilerplate generation)
-		remoteProjects[projName] = map[string]interface{}{
-			"path": fmt.Sprintf("/opt/graft/projects/%s", projName),
+		remoteProjects[projFull] = map[string]interface{}{
+			"path": fmt.Sprintf("/opt/graft/projects/%s", projFull),
 		}
 	}
 
@@ -391,23 +414,13 @@ func (e *Executor) RunInit(args []string) {
 
 		// Git validation for git modes
 		if strings.HasPrefix(deploymentMode, "git") {
-			// Check for git repository and remote origin
-			if _, err := os.Stat(".git"); os.IsNotExist(err) {
-				fmt.Println("\n❌ Error: No .git directory found in project root.")
-				fmt.Println("   Git modes require a git repository.")
-				continue
-			}
-
-			// Get remote origin
-			cmd := exec.Command("git", "remote", "get-url", "origin")
-			out, err := cmd.Output()
+			branch, err := e.promptGitBranch(reader)
 			if err != nil {
-				fmt.Println("\n❌ Error: No git remote 'origin' found.")
-				fmt.Println("   Git modes require a remote 'origin' for deployment.")
+				fmt.Printf("\n❌ %v\n", err)
 				continue
 			}
-			gitRemote := strings.TrimSpace(string(out))
-			fmt.Printf("✅ Found git remote: %s\n", gitRemote)
+			gitBranch = branch
+			fmt.Printf("✅ Selected branch: %s\n", gitBranch)
 		}
 		break
 	}
@@ -546,8 +559,12 @@ networks:
 	}
 
 	// Remote project directory setup
+	remoteProjFull := projName
+	if !strings.HasSuffix(remoteProjFull, "-"+e.Env) {
+		remoteProjFull = fmt.Sprintf("%s-%s", remoteProjFull, e.Env)
+	}
+	remoteProjPath := fmt.Sprintf("/opt/graft/projects/%s", remoteProjFull)
 	if client != nil {
-		remoteProjPath := fmt.Sprintf("/opt/graft/projects/%s", projName)
 		fmt.Printf("📂 Setting up remote project directory: %s\n", remoteProjPath)
 		client.RunCommand(fmt.Sprintf("sudo mkdir -p %s && sudo chown $USER:$USER %s", remoteProjPath, remoteProjPath), nil, nil)
 
@@ -569,16 +586,6 @@ networks:
 		}
 	}
 
-	// Save local config
-	cfg := &config.GraftConfig{
-		Server: config.ServerConfig{
-			RegistryName: registryName,
-			Host:         host, Port: port, User: user, KeyPath: keyPath,
-			GraftHookURL: currentHookURL,
-		},
-	}
-	config.SaveConfig(cfg, true) // local
-
 	// Generate boilerplate
 	p := deploy.GenerateBoilerplate(projName, domain, deploymentMode)
 	p.Save(".")
@@ -586,12 +593,14 @@ networks:
 	// Save project metadata
 	meta := &config.ProjectMetadata{
 		Name:            projName,
-		RemotePath:      fmt.Sprintf("/opt/graft/projects/%s", projName),
+		RemotePath:      remoteProjPath,
 		DeploymentMode:  deploymentMode,
+		GitBranch:       gitBranch,
 		GraftHookURL:    currentHookURL,
 		RollbackBackups: versionToKeep,
+		Registry:        registryName,
 	}
-	if err := config.SaveProjectMetadata(meta); err != nil {
+	if err := config.SaveProjectMetadata(e.Env, meta); err != nil {
 		fmt.Printf("Warning: Could not save project metadata: %v\n", err)
 	}
 
@@ -629,11 +638,7 @@ func (e *Executor) RunSync(args []string) {
 		}
 	}
 
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	// Find project file
 	localFile := "graft-compose.yml"
@@ -642,13 +647,13 @@ func (e *Executor) RunSync(args []string) {
 		return
 	}
 
-	p, err := deploy.LoadProject(localFile)
+	p, err := deploy.LoadProject(e.Env, localFile)
 	if err != nil {
 		fmt.Printf("Error loading project: %v\n", err)
 		return
 	}
 
-	meta, err := config.LoadProjectMetadata()
+	meta, err := config.LoadProjectMetadata(e.Env)
 	if err != nil {
 		fmt.Println("Warning: Could not load project metadata. Run 'graft init' first.")
 	} else {
@@ -669,7 +674,7 @@ func (e *Executor) RunSync(args []string) {
 		}
 
 		// Generate Workflows
-		if err := deploy.GenerateWorkflows(p, remoteURL, meta.DeploymentMode, meta.GraftHookURL); err != nil {
+		if err := deploy.GenerateWorkflows(p, e.Env, remoteURL, meta.DeploymentMode, meta.GraftHookURL); err != nil {
 			fmt.Printf("Error generating workflows: %v\n", err)
 			return
 		}
@@ -686,13 +691,13 @@ func (e *Executor) RunSync(args []string) {
 		defer client.Close()
 
 		fmt.Println("📤 Transferring files to server...")
-		if err := deploy.SyncComposeOnly(client, p, true, os.Stdout, os.Stderr, true, true); err != nil {
+		if err := deploy.SyncComposeOnly(e.Env, client, p, true, os.Stdout, os.Stderr, true, true); err != nil {
 			fmt.Printf("Error syncing compose: %v\n", err)
 		}
 
 		// Update initialized status
 		meta.Initialized = true
-		config.SaveProjectMetadata(meta)
+		config.SaveProjectMetadata(e.Env, meta)
 
 		fmt.Println("\n✅ Project initialized! Next steps:")
 		fmt.Println("1. Review .github/workflows/ci.yml and deploy.yml")
@@ -723,7 +728,7 @@ func (e *Executor) RunSync(args []string) {
 			}
 			defer client.Close()
 
-			if err := deploy.SyncComposeOnly(client, p, true, os.Stdout, os.Stderr, doCompose, doEnv); err != nil {
+			if err := deploy.SyncComposeOnly(e.Env, client, p, true, os.Stdout, os.Stderr, doCompose, doEnv); err != nil {
 				fmt.Printf("Error during sync: %v\n", err)
 				return
 			}
@@ -759,7 +764,7 @@ func (e *Executor) RunSync(args []string) {
 		if heave {
 			fmt.Println("📦 Heave sync enabled (upload only)")
 		}
-		err = deploy.SyncService(client, p, serviceName, noCache, heave, useGit, gitBranch, gitCommit, os.Stdout, os.Stderr)
+		err = deploy.SyncService(e.Env, client, p, serviceName, noCache, heave, useGit, gitBranch, gitCommit, os.Stdout, os.Stderr)
 	} else {
 		if useGit {
 			fmt.Println("📦 Git mode enabled")
@@ -770,7 +775,7 @@ func (e *Executor) RunSync(args []string) {
 		if heave {
 			fmt.Println("🚀 Heave sync enabled (upload only)")
 		}
-		err = deploy.Sync(client, p, noCache, heave, useGit, gitBranch, gitCommit, os.Stdout, os.Stderr)
+		err = deploy.Sync(e.Env, client, p, noCache, heave, useGit, gitBranch, gitCommit, os.Stdout, os.Stderr)
 	}
 
 	if err != nil {
@@ -793,11 +798,7 @@ func (e *Executor) RunSyncCompose(args []string) {
 		}
 	}
 
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	// Find project file
 	localFile := "graft-compose.yml"
@@ -806,7 +807,7 @@ func (e *Executor) RunSyncCompose(args []string) {
 		return
 	}
 
-	p, err := deploy.LoadProject(localFile)
+	p, err := deploy.LoadProject(e.Env, localFile)
 	if err != nil {
 		fmt.Printf("Error loading project: %v\n", err)
 		return
@@ -823,7 +824,7 @@ func (e *Executor) RunSyncCompose(args []string) {
 		fmt.Println("📄 Heave sync enabled (config upload only)")
 	}
 
-	err = deploy.SyncComposeOnly(client, p, heave, os.Stdout, os.Stderr, true, true)
+	err = deploy.SyncComposeOnly(e.Env, client, p, heave, os.Stdout, os.Stderr, true, true)
 	if err != nil {
 		fmt.Printf("Error during sync: %v\n", err)
 		return
@@ -835,14 +836,10 @@ func (e *Executor) RunSyncCompose(args []string) {
 }
 
 func (e *Executor) RunLogs(serviceName string) {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	// Load project metadata to get remote path
-	meta, err := config.LoadProjectMetadata()
+	meta, err := config.LoadProjectMetadata(e.Env)
 	if err != nil {
 		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
 		return
@@ -867,13 +864,9 @@ func (e *Executor) RunLogs(serviceName string) {
 }
 
 func (e *Executor) RunDockerCompose(args []string) {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
-	meta, err := config.LoadProjectMetadata()
+	meta, err := config.LoadProjectMetadata(e.Env)
 	if err != nil {
 		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
 		return
@@ -896,11 +889,7 @@ func (e *Executor) RunDockerCompose(args []string) {
 }
 
 func (e *Executor) RunHook(args []string) {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found.")
-		return
-	}
+	cfg := e
 
 	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
 	if err != nil {
@@ -947,14 +936,33 @@ func (e *Executor) RunPull(registryName, projectName string) {
 	defer os.Remove(tmpFile)
 
 	data, _ := os.ReadFile(tmpFile)
-	var remoteProjects map[string]string
+	var remoteProjects map[string]interface{}
 	json.Unmarshal(data, &remoteProjects)
 
-	remotePath, exists := remoteProjects[projectName]
+	fullProjectName := projectName
+	var remotePath string
+	
+	entry, exists := remoteProjects[fullProjectName]
 	if !exists {
+		fullProjectName = projectName + "-" + registryName
+		entry, exists = remoteProjects[fullProjectName]
+	}
+
+	if exists {
+		if s, ok := entry.(string); ok {
+			remotePath = s
+		} else if m, ok := entry.(map[string]interface{}); ok {
+			remotePath, _ = m["path"].(string)
+		}
+	}
+
+	if remotePath == "" {
 		fmt.Printf("Error: Project '%s' not found on remote server.\n", projectName)
 		return
 	}
+
+	projectName = fullProjectName // Use the full name for local directory too if found as full name
+
 
 	home, _ := os.UserHomeDir()
 	localBase := filepath.Join(home, "graft", projectName)
@@ -970,17 +978,12 @@ func (e *Executor) RunPull(registryName, projectName string) {
 	}
 
 	fmt.Println("🔧 Re-initializing local configuration...")
-	cfg := &config.GraftConfig{
-		Server: srv,
-	}
-
 	os.MkdirAll(filepath.Join(localBase, ".graft"), 0755)
-	cfgData, _ := json.MarshalIndent(cfg, "", "  ")
-	os.WriteFile(filepath.Join(localBase, ".graft", "config.json"), cfgData, 0644)
 
 	meta := &config.ProjectMetadata{
 		Name:       projectName,
 		RemotePath: remotePath,
+		Registry:   registryName,
 	}
 	metaData, _ := json.MarshalIndent(meta, "", "  ")
 	os.WriteFile(filepath.Join(localBase, ".graft", "project.json"), metaData, 0644)
@@ -995,3 +998,73 @@ func (e *Executor) RunPull(registryName, projectName string) {
 	fmt.Printf("\n✨ Project '%s' pulled successfully to %s\n", projectName, localBase)
 	fmt.Printf("👉 Use 'graft -p %s <command>' to manage it.\n", projectName)
 }
+
+func (e *Executor) promptGitBranch(reader *bufio.Reader) (string, error) {
+	// Check for git repository
+	if _, err := os.Stat(".git"); os.IsNotExist(err) {
+		return "", fmt.Errorf("no .git directory found in project root. Git modes require a git repository")
+	}
+
+	// Get remote origin
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("no git remote 'origin' found. Git modes require a remote 'origin' for deployment")
+	}
+	gitRemote := strings.TrimSpace(string(out))
+	fmt.Printf("✅ Found git remote: %s\n", gitRemote)
+
+	// Get all branches
+	branchCmd := exec.Command("git", "branch", "-a", "--format=%(refname:short)")
+	branchOut, err := branchCmd.Output()
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Could not fetch git branches: %v. Defaulting to 'main'\n", err)
+		return "main", nil
+	}
+
+	lines := strings.Split(string(branchOut), "\n")
+	var branches []string
+	seen := make(map[string]bool)
+	for _, line := range lines {
+		branch := strings.TrimSpace(line)
+		if branch == "" || strings.Contains(branch, "HEAD") {
+			continue
+		}
+		// Clean up remote prefixes
+		cleanBranch := branch
+		if strings.HasPrefix(cleanBranch, "remotes/origin/") {
+			cleanBranch = strings.TrimPrefix(cleanBranch, "remotes/origin/")
+		} else if strings.HasPrefix(cleanBranch, "origin/") {
+			cleanBranch = strings.TrimPrefix(cleanBranch, "origin/")
+		}
+
+		if !seen[cleanBranch] {
+			branches = append(branches, cleanBranch)
+			seen[cleanBranch] = true
+		}
+	}
+
+	if len(branches) == 0 {
+		return "main", nil
+	}
+
+	fmt.Println("\n🌿 Available branches:")
+	for i, b := range branches {
+		fmt.Printf("  [%d] %s\n", i+1, b)
+	}
+	fmt.Printf("\nSelect branch [1-%d] (default: 1): ", len(branches))
+	bInput, _ := reader.ReadString('\n')
+	bInput = strings.TrimSpace(bInput)
+	if bInput == "" {
+		return branches[0], nil
+	}
+
+	idx, err := strconv.Atoi(bInput)
+	if err != nil || idx < 1 || idx > len(branches) {
+		fmt.Printf("⚠️  Invalid selection, using default: %s\n", branches[0])
+		return branches[0], nil
+	}
+
+	return branches[idx-1], nil
+}
+

@@ -17,11 +17,7 @@ func (e *Executor) RunMap(args []string) {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Load project config
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found. Run 'graft init' first.")
-		return
-	}
+	cfg := e
 
 	// Parse graft-compose.yml
 	compose, err := deploy.ParseComposeFile("graft-compose.yml")
@@ -80,9 +76,13 @@ func (e *Executor) RunMap(args []string) {
 	} else {
 		fmt.Printf("Detected IP: %s\n", serverIP)
 	}
+	cloudflare, err := config.LoadCloudFlareConfig()
+	if err != nil {
+		fmt.Println("failed to load cloudflare config")
+	}
 
 	// Get Cloudflare credentials
-	apiToken, zoneID := fetchCloudflareCredentials(cfg, reader)
+	apiToken, zoneID := fetchCloudflareCredentials(cloudflare, reader)
 	if apiToken == "" || zoneID == "" {
 		fmt.Println("❌ Cloudflare API Token and Zone ID are required.")
 		return
@@ -178,11 +178,7 @@ func (e *Executor) RunMapService(serviceName string) {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Load project config
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Println("Error: No config found. Run 'graft init' first.")
-		return
-	}
+	cfg := e
 
 	// Parse graft-compose.yml
 	compose, err := deploy.ParseComposeFile("graft-compose.yml")
@@ -229,9 +225,9 @@ func (e *Executor) RunMapService(serviceName string) {
 	} else {
 		fmt.Printf("Server IP: %s\n", serverIP)
 	}
-
+	cloudflare, err := config.LoadCloudFlareConfig()
 	// Get Cloudflare credentials
-	apiToken, zoneID := fetchCloudflareCredentials(cfg, reader)
+	apiToken, zoneID := fetchCloudflareCredentials(cloudflare, reader)
 	if apiToken == "" || zoneID == "" {
 		fmt.Println("❌ Cloudflare API Token and Zone ID are required.")
 		return
@@ -294,7 +290,7 @@ func (e *Executor) RunMapService(serviceName string) {
 	fmt.Println("\n✅ DNS mapping complete for service:", serviceName)
 }
 
-func fetchCloudflareCredentials(cfg *config.GraftConfig, reader *bufio.Reader) (string, string) {
+func fetchCloudflareCredentials(cfg *config.Cloudflare, reader *bufio.Reader) (string, string) {
 	// 1. Try environment variables
 	envToken := os.Getenv("CLOUDFLARE_API_TOKEN")
 	envZone := os.Getenv("CLOUDFLARE_ZONE_ID")
