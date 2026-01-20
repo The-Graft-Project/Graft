@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/skssmd/graft/cmd/graft/executors"
 	"github.com/skssmd/graft/internal/config"
 )
 
@@ -12,7 +13,7 @@ func main() {
 		printUsage()
 		return
 	}
-
+	e := executors.GetExecutor()
 	args := os.Args[1:]
 
 	// Handle version and help flags
@@ -40,7 +41,7 @@ func main() {
 
 		// Handle shell directly after -r: graft -r name -sh ...
 		if len(args) > 0 && (args[0] == "-sh" || args[0] == "--sh") {
-			runRegistryShell(registryContext, args[1:])
+			e.RunRegistryShell(registryContext, args[1:])
 			return
 		}
 	}
@@ -73,9 +74,9 @@ func main() {
 
 	switch command {
 	case "init":
-		runInit(args[1:])
+		e.RunInit(args[1:])
 	case "hook":
-		runHook(args[1:])
+		e.RunHook(args[1:])
 	case "host":
 		if len(args) < 2 {
 			fmt.Println("Usage: graft host [init|clean|sh|self-destruct]")
@@ -83,13 +84,13 @@ func main() {
 		}
 		switch args[1] {
 		case "init":
-			runHostInit()
+			e.RunHostInit()
 		case "clean":
-			runHostClean()
+			e.RunHostClean()
 		case "sh", "-sh", "--sh":
-			runHostShell(args[2:])
+			e.RunHostShell(args[2:])
 		case "self-destruct":
-			runHostSelfDestruct()
+			e.RunHostSelfDestruct()
 		default:
 			fmt.Println("Usage: graft host [init|clean|sh|self-destruct]")
 		}
@@ -98,47 +99,47 @@ func main() {
 			fmt.Println("Usage: graft db <name> init")
 			return
 		}
-		runInfraInit("postgres", args[1])
+		e.RunInfraInit("postgres", args[1])
 	case "redis":
 		if len(args) < 3 || args[2] != "init" {
 			fmt.Println("Usage: graft redis <name> init")
 			return
 		}
-		runInfraInit("redis", args[1])
+		e.RunInfraInit("redis", args[1])
 	case "infra":
 		if len(args) < 2 {
 			fmt.Println("Usage: graft infra [db|redis] ports:<value> | graft infra reload")
 			return
 		}
 		if args[1] == "reload" {
-			runInfraReload()
+			e.RunInfraReload()
 		} else {
-			runInfra(args[1:])
+			e.RunInfra(args[1:])
 		}
 	case "logs":
 		if len(args) < 2 {
 			fmt.Println("Usage: graft logs <service>")
 			return
 		}
-		runLogs(args[1])
+		e.RunLogs(args[1])
 	case "sync":
 		// Check if "compose" subcommand is specified
 		if len(args) > 1 && args[1] == "compose" {
-			runSyncCompose(args[1:])
+			e.RunSyncCompose(args[1:])
 		} else {
-			runSync(args[1:])
+			e.RunSync(args[1:])
 		}
 	case "rollback":
 		if len(args) > 1 && args[1] == "config" {
-			runRollbackConfig()
+			e.RunRollbackConfig()
 		} else if len(args) > 1 && args[1] == "service" {
 			if len(args) < 3 {
 				fmt.Println("Usage: graft rollback service <service-name>")
 				return
 			}
-			runServiceRollback(args[2])
+			e.RunServiceRollback(args[2])
 		} else {
-			runRollback()
+			e.RunRollback()
 		}
 	case "registry":
 		if len(args) < 2 {
@@ -147,21 +148,21 @@ func main() {
 		}
 		switch args[1] {
 		case "ls":
-			runRegistryLs()
+			e.RunRegistryLs()
 		case "add":
-			runRegistryAdd()
+			e.RunRegistryAdd()
 		case "del":
 			if len(args) < 3 {
 				fmt.Println("Usage: graft registry del <name>")
 				return
 			}
-			runRegistryDel(args[2])
+			e.RunRegistryDel(args[2])
 		default:
 			fmt.Println("Usage: graft registry [ls|add|del]")
 		}
 	case "projects":
 		if len(args) > 1 && args[1] == "ls" {
-			runProjectsLs(registryContext)
+			e.RunProjectsLs(registryContext)
 		} else {
 			fmt.Println("Usage: graft projects ls")
 		}
@@ -174,20 +175,20 @@ func main() {
 			fmt.Println("Usage: graft -r <registry> pullfromhost <project>")
 			return
 		}
-		runPull(registryContext, args[1])
+		e.RunPull(registryContext, args[1])
 	case "mode":
-		runMode()
+		e.RunMode()
 	case "map":
 		if len(args) < 2 {
-			runMap([]string{}) // Map all services
+			e.RunMap([]string{}) // Map all services
 		} else if args[1] == "service" {
 			if len(args) < 3 {
 				fmt.Println("Usage: graft map service <service-name>")
 				return
 			}
-			runMapService(args[2])
+			e.RunMapService(args[2])
 		} else {
-			runMap(args[1:])
+			e.RunMap(args[1:])
 		}
 	default:
 		// Handle the --pull flag as requested in the specific format
@@ -206,7 +207,7 @@ func main() {
 		// if foundPull { return }
 
 		// Pass through to docker compose for any other command
-		runDockerCompose(args)
+		e.RunDockerCompose(args)
 	}
 }
 

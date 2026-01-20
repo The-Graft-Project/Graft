@@ -1,4 +1,4 @@
-package main
+package executors
 
 import (
 	"bufio"
@@ -14,7 +14,7 @@ import (
 	"github.com/skssmd/graft/internal/ssh"
 )
 
-func runRollback() {
+func (e *Executor) RunRollback() {
 	meta, err := config.LoadProjectMetadata()
 	if err != nil {
 		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
@@ -87,7 +87,7 @@ func runRollback() {
 	}
 }
 
-func runRollbackConfig() {
+func (e *Executor) RunRollbackConfig() {
 	meta, err := config.LoadProjectMetadata()
 	if err != nil {
 		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")
@@ -187,7 +187,7 @@ func runRollbackConfig() {
 	}
 }
 
-func runServiceRollback(serviceName string) {
+func (e *Executor) RunServiceRollback(serviceName string) {
 	meta, err := config.LoadProjectMetadata()
 	if err != nil {
 		fmt.Println("Error: Could not load project metadata. Run 'graft init' first.")

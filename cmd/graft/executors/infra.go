@@ -1,4 +1,4 @@
-package main
+package executors
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	"github.com/skssmd/graft/internal/ssh"
 )
 
-func runInfraInit(typ, name string) {
+func (e *Executor) RunInfraInit(typ, name string) {
 	name = config.NormalizeProjectName(name)
 	if name == "" {
 		fmt.Printf("Error: Invalid %s name. Use only letters, numbers, and underscores.\n", typ)
@@ -50,10 +50,10 @@ func runInfraInit(typ, name string) {
 
 	fmt.Printf("\n✅ %s '%s' initialized!\n", typ, name)
 	fmt.Printf("Secret saved at ./graft/secrets.env")
-	
+
 }
 
-func runInfra(args []string) {
+func (e *Executor) RunInfra(args []string) {
 	if len(args) < 2 {
 		fmt.Println("Usage: graft infra [db|redis] ports:<value>")
 		fmt.Println("       graft infra db backup")
@@ -142,7 +142,7 @@ func runInfra(args []string) {
 	fmt.Println("\n✅ Infrastructure updated successfully!")
 }
 
-func runInfraReload() {
+func (e *Executor) RunInfraReload() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found.")
@@ -167,4 +167,3 @@ func runInfraReload() {
 
 	fmt.Println("\n✅ Infrastructure reloaded successfully!")
 }
-

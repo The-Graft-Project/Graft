@@ -1,4 +1,4 @@
-package main
+package executors
 
 import (
 	"bufio"
@@ -13,7 +13,7 @@ import (
 	"github.com/skssmd/graft/internal/ssh"
 )
 
-func runHostInit() {
+func (e *Executor) RunHostInit() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found. Run 'graft init' first.")
@@ -121,7 +121,7 @@ func runHostInit() {
 	fmt.Println("\n✅ Host initialized successfully!")
 }
 
-func runHostClean() {
+func (e *Executor) RunHostClean() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found.")
@@ -157,7 +157,7 @@ func runHostClean() {
 
 	fmt.Println("\n✅ Cleanup complete!")
 }
-func runHostSelfDestruct() {
+func (e *Executor) RunHostSelfDestruct() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found.")
@@ -278,7 +278,7 @@ func runHostSelfDestruct() {
 	fmt.Println("\n💡 You can run 'graft host init' to set up a fresh environment.")
 }
 
-func runHostShell(commandArgs []string) {
+func (e *Executor) RunHostShell(commandArgs []string) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found.")

@@ -1,4 +1,4 @@
-package main
+package executors
 
 import (
 	"bufio"
@@ -13,7 +13,7 @@ import (
 	"github.com/skssmd/graft/internal/ssh"
 )
 
-func runMap(args []string) {
+func (e *Executor) RunMap(args []string) {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Load project config
@@ -72,7 +72,7 @@ func runMap(args []string) {
 	var ipOutput strings.Builder
 	err = client.RunCommand("curl -s https://api.ipify.org", &ipOutput, os.Stderr)
 	serverIP := strings.TrimSpace(ipOutput.String())
-	
+
 	if err != nil || serverIP == "" {
 		fmt.Print("Could not auto-detect server IP. Enter manually: ")
 		input, _ := reader.ReadString('\n')
@@ -99,7 +99,7 @@ func runMap(args []string) {
 
 	// Process each domain
 	fmt.Println("\n📍 Checking DNS records...")
-	
+
 	stats := struct {
 		unchanged int
 		updated   int
@@ -111,7 +111,7 @@ func runMap(args []string) {
 		for _, domain := range sd.Domains {
 			// Get existing record
 			record, err := dns.GetDNSRecord(domain, "", apiToken, zoneID)
-			
+
 			if err != nil {
 				fmt.Printf("  ❌ Error checking %s: %v\n", domain, err)
 				stats.skipped++
@@ -128,7 +128,7 @@ func runMap(args []string) {
 					fmt.Printf("      Overwrite with %s? (y/n): ", serverIP)
 					confirm, _ := reader.ReadString('\n')
 					confirm = strings.ToLower(strings.TrimSpace(confirm))
-					
+
 					if confirm == "y" || confirm == "yes" {
 						err = dns.UpdateDNSRecord(record.ID, serverIP, apiToken, zoneID)
 						if err != nil {
@@ -174,7 +174,7 @@ func runMap(args []string) {
 	}
 }
 
-func runMapService(serviceName string) {
+func (e *Executor) RunMapService(serviceName string) {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Load project config
@@ -221,7 +221,7 @@ func runMapService(serviceName string) {
 	var ipOutput strings.Builder
 	err = client.RunCommand("curl -s https://api.ipify.org", &ipOutput, os.Stderr)
 	serverIP := strings.TrimSpace(ipOutput.String())
-	
+
 	if err != nil || serverIP == "" {
 		fmt.Print("Could not auto-detect server IP. Enter manually: ")
 		input, _ := reader.ReadString('\n')
@@ -248,11 +248,11 @@ func runMapService(serviceName string) {
 
 	// Process each domain
 	fmt.Println("\n📍 Processing DNS records...")
-	
+
 	for _, domain := range hosts {
 		// Get existing record
 		record, err := dns.GetDNSRecord(domain, "", apiToken, zoneID)
-		
+
 		if err != nil {
 			fmt.Printf("❌ Error checking %s: %v\n", domain, err)
 			continue
@@ -267,7 +267,7 @@ func runMapService(serviceName string) {
 				fmt.Printf("    Overwrite with %s? (y/n): ", serverIP)
 				confirm, _ := reader.ReadString('\n')
 				confirm = strings.ToLower(strings.TrimSpace(confirm))
-				
+
 				if confirm == "y" || confirm == "yes" {
 					err = dns.UpdateDNSRecord(record.ID, serverIP, apiToken, zoneID)
 					if err != nil {
@@ -312,7 +312,9 @@ func fetchCloudflareCredentials(cfg *config.GraftConfig, reader *bufio.Reader) (
 	// Also add local/legacy ones if they exist and aren't in the map
 	if cfg.Cloudflare.APIToken != "" && cfg.Cloudflare.ZoneID != "" {
 		name := cfg.Cloudflare.Domain
-		if name == "" { name = "Local Config" }
+		if name == "" {
+			name = "Local Config"
+		}
 		accounts[name] = cfg.Cloudflare
 	}
 
@@ -323,7 +325,7 @@ func fetchCloudflareCredentials(cfg *config.GraftConfig, reader *bufio.Reader) (
 		}
 
 		fmt.Println("\n🔐 Cloudflare Account Selection:")
-		
+
 		var domains []string
 		for domain := range accounts {
 			domains = append(domains, domain)
@@ -335,7 +337,7 @@ func fetchCloudflareCredentials(cfg *config.GraftConfig, reader *bufio.Reader) (
 			fmt.Printf("  %d. %s (%s)\n", i+1, domain, acc.ZoneID)
 		}
 		fmt.Printf("  /new. Add new Cloudflare account\n")
-		
+
 		fmt.Print("\nSelect an account (1, 2, ...) or type /new: ")
 		choice, _ := reader.ReadString('\n')
 		choice = strings.TrimSpace(choice)
@@ -379,7 +381,9 @@ func promptNewAccount(reader *bufio.Reader) (string, string) {
 		fmt.Print("Enter a name for this account: ")
 		domain, _ = reader.ReadString('\n')
 		domain = strings.TrimSpace(domain)
-		if domain == "" { domain = zone }
+		if domain == "" {
+			domain = zone
+		}
 	} else {
 		fmt.Printf("✅ Found domain: %s\n", domain)
 	}
@@ -387,11 +391,11 @@ func promptNewAccount(reader *bufio.Reader) (string, string) {
 	fmt.Print("💾 Save these credentials globally? (y/n): ")
 	saveGlobally, _ := reader.ReadString('\n')
 	saveGlobally = strings.ToLower(strings.TrimSpace(saveGlobally))
-	
+
 	if saveGlobally == "y" || saveGlobally == "yes" {
 		config.SaveGlobalCloudflare(token, zone, domain)
 		fmt.Println("✅ Cloudflare credentials saved globally")
 	}
-	
+
 	return token, zone
 }

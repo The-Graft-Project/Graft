@@ -40,7 +40,7 @@ func InitPostgres(client *ssh.Client, name string, cfg *config.GraftConfig, stdo
 			return "", fmt.Errorf("could not find infrastructure credentials locally or on the remote server. Run 'graft host init' first.")
 		}
 	}
-	
+
 	// Connect to the shared 'graft-postgres' container and create the database
 	cmd := fmt.Sprintf(`sudo docker exec graft-postgres psql -U %s -d %s -c "CREATE DATABASE %s;"`, pgUser, pgDB, name)
 
@@ -56,7 +56,7 @@ func InitPostgres(client *ssh.Client, name string, cfg *config.GraftConfig, stdo
 
 func InitRedis(client *ssh.Client, name string, stdout, stderr io.Writer) (string, error) {
 	fmt.Fprintf(stdout, "🍦 Mapping Redis database for: %s\n", name)
-	
+
 	// Redis doesn't have "CREATE DATABASE" in the same way.
 	// We'll map the name to a database index (1-15) using a hash.
 	// Index 0 is reserved for general use.

@@ -1,4 +1,4 @@
-package main
+package executors
 
 import (
 	"bufio"
@@ -17,7 +17,14 @@ import (
 	"github.com/skssmd/graft/internal/ssh"
 )
 
-func runMode() {
+type Executor struct {
+}
+
+func GetExecutor() *Executor {
+	return &Executor{}
+}
+
+func (e *Executor) RunMode() {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Load project metadata
@@ -106,7 +113,7 @@ func runMode() {
 	}
 }
 
-func runInit(args []string) {
+func (e *Executor) RunInit(args []string) {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Parse flags
@@ -593,11 +600,7 @@ networks:
 	fmt.Printf("Boilerplate: graft-compose.yml\n")
 }
 
-
-
-
-
-func runSync(args []string) {
+func (e *Executor) RunSync(args []string) {
 	// Check if a specific service is specified
 	var serviceName string
 	var noCache bool
@@ -780,7 +783,7 @@ func runSync(args []string) {
 	}
 }
 
-func runSyncCompose(args []string) {
+func (e *Executor) RunSyncCompose(args []string) {
 	var heave bool
 	// Parse arguments: compose [-h|--heave]
 	for i := 0; i < len(args); i++ {
@@ -831,7 +834,7 @@ func runSyncCompose(args []string) {
 	}
 }
 
-func runLogs(serviceName string) {
+func (e *Executor) RunLogs(serviceName string) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found.")
@@ -863,7 +866,7 @@ func runLogs(serviceName string) {
 	}
 }
 
-func runDockerCompose(args []string) {
+func (e *Executor) RunDockerCompose(args []string) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found.")
@@ -892,7 +895,7 @@ func runDockerCompose(args []string) {
 	}
 }
 
-func runHook(args []string) {
+func (e *Executor) RunHook(args []string) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Println("Error: No config found.")
@@ -914,33 +917,8 @@ func runHook(args []string) {
 		fmt.Printf("\nError: %v\n", err)
 	}
 }
-func promptNewServer(reader *bufio.Reader) (string, int, string, string) {
-	fmt.Print("Host IP: ")
-	host, _ := reader.ReadString('\n')
-	host = strings.TrimSpace(host)
 
-	fmt.Print("Port (22): ")
-	portStr, _ := reader.ReadString('\n')
-	port, _ := strconv.Atoi(strings.TrimSpace(portStr))
-	if port == 0 {
-		port = 22
-	}
-
-	fmt.Print("User: ")
-	user, _ := reader.ReadString('\n')
-	user = strings.TrimSpace(user)
-
-	fmt.Print("Key Path: ")
-	keyPath, _ := reader.ReadString('\n')
-	keyPath = strings.TrimSpace(keyPath)
-
-	return host, port, user, keyPath
-}
-
-
-
-
-func runPull(registryName, projectName string) {
+func (e *Executor) RunPull(registryName, projectName string) {
 	gCfg, err := config.LoadGlobalConfig()
 	if err != nil || gCfg == nil {
 		fmt.Println("Error loading global registry.")
@@ -1017,6 +995,3 @@ func runPull(registryName, projectName string) {
 	fmt.Printf("\n✨ Project '%s' pulled successfully to %s\n", projectName, localBase)
 	fmt.Printf("👉 Use 'graft -p %s <command>' to manage it.\n", projectName)
 }
-
-
-

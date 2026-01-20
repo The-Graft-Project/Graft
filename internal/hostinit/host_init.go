@@ -14,7 +14,7 @@ import (
 func InitHost(client *ssh.Client, setupPostgres, setupRedis, exposePostgres, exposeRedis bool, pgUser, pgPass, pgDB string, stdout, stderr io.Writer) error {
 	// Detect OS and set appropriate package manager commands
 	var dockerInstallCmd, composeInstallCmd string
-	
+
 	// Check if it's Amazon Linux (uses yum/dnf)
 	if err := client.RunCommand("cat /etc/os-release | grep -i 'amazon linux'", nil, nil); err == nil {
 		fmt.Fprintln(stdout, "🔍 Detected: Amazon Linux")
@@ -42,10 +42,10 @@ sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx`
 	}
 
 	steps := []struct {
-		name     string
-		check    string
-		cmd      string
-		skipMsg  string
+		name    string
+		check   string
+		cmd     string
+		skipMsg string
 	}{
 		{
 			name:    "Check Docker",
@@ -72,8 +72,8 @@ sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx`
 			skipMsg: "Base directories already exist.",
 		},
 		{
-			name:    "Setup Traefik",
-			check:   "sudo docker ps | grep graft-traefik",
+			name:  "Setup Traefik",
+			check: "sudo docker ps | grep graft-traefik",
 			cmd: `sudo tee /opt/graft/gateway/docker-compose.yml <<EOF
 version: '3.8'
 services:
@@ -144,7 +144,7 @@ sudo docker compose -f /opt/graft/gateway/docker-compose.yml up -d`,
 	// Conditionally setup shared infrastructure
 	if setupPostgres || setupRedis {
 		fmt.Fprintf(stdout, "\n🔧 Setup Shared Infra\n")
-		
+
 		pgPort := ""
 		if exposePostgres {
 			pgPort = "5432"
@@ -216,14 +216,14 @@ networks:
     external: true
 EOF
 sudo docker compose -f /opt/graft/infra/docker-compose.yml up -d`, services)
-	
+
 	if err := client.RunCommand(infraCmd, stdout, stderr); err != nil {
 		return fmt.Errorf("shared infrastructure setup failed: %v", err)
 	}
 
 	// Save credentials to remote config file
 	data, _ := json.MarshalIndent(cfg, "", "  ")
-	
+
 	tmpFile := filepath.Join(os.TempDir(), "infra.config")
 	os.WriteFile(tmpFile, data, 0644)
 	defer os.Remove(tmpFile)
@@ -233,6 +233,6 @@ sudo docker compose -f /opt/graft/infra/docker-compose.yml up -d`, services)
 	} else {
 		fmt.Fprintln(stdout, "✅ Infra credentials saved to remote server")
 	}
-	
+
 	return nil
 }
