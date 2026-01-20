@@ -59,7 +59,7 @@ winget:
     license_url: https://github.com/skssmd/Graft/blob/main/LICENSE
     copyright_url: https://github.com/skssmd/Graft/blob/main/LICENSE
     release_notes_url: https://github.com/skssmd/Graft/releases/tag/v{{.Version}}
-    package_url: https://github.com/skssmd/Graft
+    
     
     author: skssmd
     
