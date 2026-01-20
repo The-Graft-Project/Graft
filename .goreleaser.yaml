@@ -12,18 +12,14 @@ builds:
     env:
       - CGO_ENABLED=0
     goos:
-      - linux
       - windows
-      - darwin
     goarch:
       - amd64
       - arm64
 
 archives:
   - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        formats: [zip]
+    format: zip
 
 checksum:
   name_template: "checksums.txt"
@@ -31,209 +27,91 @@ checksum:
 snapshot:
   version_template: "{{ .Tag }}-next"
 
-# Homebrew Tap (macOS and Linux)
-brews:
-  - # GitHub repository for your Homebrew tap
-    # You'll need to create a repo named homebrew-tap (or homebrew-<anything>)
-    name: graft
+# Winget configuration
+winget:
+  - name: Graft
+    publisher: skssmd
+    license: MIT
+    copyright: Copyright (c) 2025 skssmd
+    homepage: https://github.com/skssmd/Graft
+    short_description: A high-performance, zero-overhead deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH
+    description: |
+      A high-performance, zero-overhead deployment engine that extends the Docker Compose workflow 
+      to cloud infrastructure via SSH. Graft enables native remote management of AWS, GCP, and VPS 
+      instances with no agent installs or server-side overhead required. With V2.0 Graft is now 
+      optimized for git and github actions ci/cd flow
+    
+    tags:
+      - graft
+      - Graft
+      - deployment
+      - devops
+      - dev ops
+      - easy deployment
+      - docker compose
+      - docker
+      - ssh
+      - hosting
+      - cloud
+    
+    publisher_url: https://github.com/skssmd
+    publisher_support_url: https://github.com/skssmd/Graft/issues
+    license_url: https://github.com/skssmd/Graft/blob/main/LICENSE
+    copyright_url: https://github.com/skssmd/Graft/blob/main/LICENSE
+    release_notes_url: https://github.com/skssmd/Graft/releases/tag/v{{.Version}}
+    package_url: https://github.com/skssmd/Graft
+    
+    author: skssmd
+    
+    # Installation notes
+    release_notes: |
+      - Cloudflare API Integration: Automated DNS zone mapping based on Traefik host labels.
+      - Cloudflare Zone Registry: Manage multiple Cloudflare accounts and zones with an interactive selection menu.
+      - Database Backup Automation: Easily backup infrastructure databases to S3/R2 (Experimental).
+      - Rollback to versions: Easily rollback and revert changes to previous deployments.
+      - Optimized for Git and GitHub Actions CI/CD flows.
+      - Improved domain detection.
+      - Duplicate record handling.
+      - Ghcr image linking.
+      - Boilerplate service priority guidelines.
+      - Webhook detection and error handling.
+    
+    # Repository configuration
     repository:
-      owner: skssmd  # Your GitHub username
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      owner: microsoft
+      name: winget-pkgs
+      branch: "{{.ProjectName}}-{{.Version}}-{{.ShortCommit}}"
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        draft: false
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
     
-    # Commit author for Homebrew formula updates
     commit_author:
-      name: goreleaserbot
-      email: bot@goreleaser.com
+      name: skssmd
+      email: skssmd78475@gmail.com
     
-    # Directory inside the repository where formula will be stored
-    directory: Formula
+    commit_msg_template: "New version: {{ .PackageIdentifier }} version {{ .Tag }}"
     
-    # Homepage of your project
-    homepage: "https://github.com/skssmd/graft"
-    
-    # Description for Homebrew
-    description: "Agentless deployment tool extending Docker Compose to cloud via SSH"
-    
-    # License
-    license: "MIT"
-    
-    # Install script
-    install: |
-      bin.install "graft"
-    
-    # Test to verify installation
-    test: |
-      system "#{bin}/graft --version"
-
-# Debian/Ubuntu APT repository (using Fury.io or custom repo)
-nfpms:
-  - # Package name
-    package_name: graft
-    
-    # Your info
-    vendor: skssmd
-    homepage: https://github.com/skssmd/graft
-    maintainer: skssmd <skssmd78475@gmail.com>
-    
-    # Description
-    description: Agentless deployment tool extending Docker Compose to cloud via SSH
-    
-    # License
-    license: MIT
-    
-    # Formats to generate
-    formats:
-      - deb      # Debian/Ubuntu
-      - rpm      # RedHat/Fedora
-      - apk      # Alpine
-      - archlinux # Arch Linux
-    
-    # No dependencies - graft is a standalone binary
-    # It installs docker/docker-compose/git on target servers via SSH
-    
-    # Files to include
-    contents:
-      # Man pages (optional)
-      # - src: ./manpages/graft.1.gz
-      #   dst: /usr/share/man/man1/graft.1.gz
-      
-      # Completion scripts (optional)
-      # - src: ./completions/graft.bash
-      #   dst: /usr/share/bash-completion/completions/graft
-      
-      # Config files (optional)
-      # - src: ./config/graft.yml
-      #   dst: /etc/graft/config.yml
-      #   type: config
-
-# AUR (Arch User Repository)
-aurs:
-  - # AUR package name (GoReleaser will use graft-bin for binary packages)
-    name: graft-bin
-    
-    # Your AUR SSH key (you'll need to set this up)
-    # Generate with: ssh-keygen -t ed25519 -C "aur@archlinux.org"
-    # Add to AUR: https://aur.archlinux.org/account/
-    private_key: "{{ .Env.AUR_SSH_KEY }}"
-    
-    # Git URL for AUR repository
-    git_url: "ssh://aur@aur.archlinux.org/graft-bin.git"
-    
-    # Package description (AUR requires max 80 chars, no period at end)
-    description: "Agentless deployment tool extending Docker Compose to cloud via SSH"
-    
-    # Maintainers
-    maintainers:
-      - "skssmd <skssmd78475@gmail.com>"
-    
-    # Contributors (optional)
-    contributors:
-      - "skssmd <skssmd78475@gmail.com>"
-    
-    # License
-    license: MIT
-    
-    # Homepage
-    homepage: "https://github.com/skssmd/graft"
-    
-    # No dependencies - graft is a standalone binary
-    # It installs docker/docker-compose/git on remote servers via SSH
-    
-    # Commit author
-    commit_author:
-      name: goreleaserbot
-      email: bot@goreleaser.com
-
-# Snapcraft (Snap Store)
-snapcrafts:
-  - # Snap name
-    name: graft
-    
-    # Description
-    summary: Agentless deployment tool extending Docker Compose to cloud via SSH
-    description: A simple agentless deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH. Graft enables native remote management of AWS, GCP, and VPS instances with no agent installs or server-side overhead required. With features like DNS Configurations, Rollbacks, CI/CD Workflow
-    
-    # License
-    license: MIT
-    
-    # Type of snap (classic or strict)
-    # Graft needs classic because it interacts with the local file system, SSH, and Git
-    confinement: classic
-    
-    # Build to publish
-    publish: true
-    
-    # Graded (devel or stable)
-    grade: stable
-
-# Publishers for APT/RPM (using Gemfury, Cloudsmith, or custom)
-# If you want to host your own APT repository, use this:
-publishers:
-  - name: fury.io
-    # You'll need a Fury.io account token
-    env:
-      - FURY_TOKEN={{ .Env.FURY_TOKEN }}
-    cmd: |
-      curl -F package=@{{ .ArtifactPath }} https://{{ .Env.FURY_TOKEN }}@push.fury.io/skssmd/
+    # Skip upload for testing
+    skip_upload: false
 
 release:
-  # Set to true to create draft releases (you can publish manually after review)
   draft: false
-  # Set to true to mark as prerelease for beta/rc tags
   prerelease: auto
   
   header: |
-    ## Feature Update with Graft  🚀
-    
-    ### Installation
-    
-    **Homebrew (macOS/Linux):**
-    ```bash
-    brew tap skssmd/tap
-    brew install graft
+    winget install skssmd.Graft
     ```
     
-    **Debian/Ubuntu:**
-    ```bash
-    # Download .deb from releases
-    sudo dpkg -i graft_{{ .Version }}_linux_amd64.deb
-    ```
+    **Or upgrade:**
+    ```powershell
+    winget upgrade skssmd.Graft
     
-    **Arch Linux (AUR):**
-    ```bash
-    yay -S graft-bin
-    # or
-    paru -S graft-bin
-    ```
-    
-    **Snap Store:**
-    ```bash
-    sudo snap install graft --classic
-    ```
-    
-    **Manual Install:**
-    Download the appropriate archive for your platform from the releases below.
-    
-    ---
-    
-    ### V2.2 Highlights:
-    1. **Rollback Feature**: Added rollback functionality to revert to previous deployments.
-    2. **Bug Fixes and Improvements**: 
-                        - Webhook detection and error handling.   
-                        - graft-compose.yml optimizations. 
-    
-    ### V2 Highlights:
-    This release introduces significant enhancements to Graft, moving from basic local-to-server deployments to a more robust CI/CD-driven workflow using GitHub Actions and our new `graft-hook` service.
-    
-    1. **Git Remote Modes**: Move away from direct local-to-server channels. Deployments now go through GitHub Workflows and CI/CD channels.
-    2. **Graft-Hook**: A new webhook service personalized specifically for Graft-based servers, maintaining a zero-config solution with proper security.
-    3. **Automated GitHub Workflows**: Graft now generates production-ready workflows automatically from your `graft-compose.yml` context.
-    4. **Enhanced Monitoring**: Easy CLI-based monitoring for `graft-hook`, including real-time build error logs.
-    5. **Cloudflare API Integration**: Automated DNS zone mapping based on Traefik host labels.
-    6. **Cloudflare Zone Registry**: Manage multiple Cloudflare accounts and zones with an interactive selection menu.
-    7. **Database Backup Automation(Infrastructure)**: Easily backup Infrastructure databases to S3/R2(Experimental).
   
   footer: |
     ---
-    Released by **skssmd** using [GoReleaser](https://github.com/goreleaser/goreleaser).
+    Released by **skssmd** using [GoReleaser](https://github.com/goreleaser/goreleaser)
