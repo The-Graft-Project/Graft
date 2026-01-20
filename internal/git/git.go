@@ -60,6 +60,44 @@ func GetLatestCommit(dir, branch string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// IsDirty checks if there are any uncommitted changes in the repository
+func IsDirty(dir string) (bool, error) {
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to check git status: %v", err)
+	}
+	return len(strings.TrimSpace(string(output))) > 0, nil
+}
+
+// BranchExists checks if a branch exists locally
+func BranchExists(dir, branch string) (bool, error) {
+	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd.Dir = dir
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+
+	// Also check remotes
+	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branch)
+	cmd.Dir = dir
+	err = cmd.Run()
+	return err == nil, nil
+}
+
+// CheckoutBranch switches to the specified branch
+func CheckoutBranch(dir, branch string) error {
+	cmd := exec.Command("git", "checkout", branch)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to checkout branch %s: %v\nOutput: %s", branch, err, string(output))
+	}
+	return nil
+}
+
 // CreateArchive exports a git commit to a tarball, optionally filtering to specific paths
 // paths: optional list of paths to include (e.g., ["frontend/"] for service filtering)
 func CreateArchive(dir, commit, outputPath string, paths []string) error {

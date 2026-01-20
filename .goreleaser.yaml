@@ -197,7 +197,7 @@ winget:
       owner: skssmd                    # ← CHANGED: Your fork, not microsoft
       name: winget-pkgs
       branch: "{{.ProjectName}}-{{.Version}}-{{.ShortCommit}}"
-      token: "{{ .Env.GITHUB_TOKEN }}"
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
       pull_request:
         enabled: true
         draft: false

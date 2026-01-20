@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
+	"github.com/skssmd/graft/internal/git"
 	"gopkg.in/yaml.v3"
 )
 
@@ -374,6 +375,35 @@ func GenerateWorkflows(p *Project,env string, remoteURL string, mode string, web
 		gitBranch = meta.GitBranch
 	}
 
+	// Branch management: Switch to the target branch if necessary
+	originalBranch, _ := git.GetCurrentBranch(".")
+	switchedBranch := false
+	if gitBranch != "" && originalBranch != gitBranch {
+		dirty, _ := git.IsDirty(".")
+		if dirty {
+			fmt.Printf("⚠️  Warning: Repository is dirty. Cannot switch to branch '%s' for workflow generation. Files will be placed in '%s'.\n", gitBranch, originalBranch)
+		} else {
+			exists, _ := git.BranchExists(".", gitBranch)
+			if exists {
+				fmt.Printf("🌿 Switching to branch '%s' to place workflows...\n", gitBranch)
+				if err := git.CheckoutBranch(".", gitBranch); err == nil {
+					switchedBranch = true
+					defer func() {
+						if switchedBranch {
+							fmt.Printf("🌿 Switching back to original branch '%s'...\n", originalBranch)
+							git.CheckoutBranch(".", originalBranch)
+						}
+					}()
+				} else {
+					fmt.Printf("⚠️  Warning: Failed to switch to branch '%s': %v\n", gitBranch, err)
+				}
+			} else {
+				fmt.Printf("⚠️  Warning: Target branch '%s' does not exist. Files will be placed in '%s'.\n", gitBranch, originalBranch)
+			}
+		}
+	}
+
+
 	// Extract owner and repo from remote URL
 	ownerRepo := ""
 	if strings.HasPrefix(remoteURL, "https://") {
@@ -405,11 +435,8 @@ func GenerateWorkflows(p *Project,env string, remoteURL string, mode string, web
       - completed`
 			condition = "if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}"
 		} else {
-			// Use the selected branch for push triggers
+			// Use ONLY the configured branch for push triggers
 			triggerBranches := "[ " + gitBranch + " ]"
-			if gitBranch == "main" || gitBranch == "master" || gitBranch == "develop" {
-				triggerBranches = "[ main, develop ]"
-			}
 
 			triggers = fmt.Sprintf(`  push:
     branches: %s`, triggerBranches)
@@ -471,13 +498,9 @@ jobs:
 		}
 	}
 
-	// 2. Generate CI Workflow (only for git-images)
 	if mode == "git-images" {
-		// Use the selected branch for push triggers
+		// Use ONLY the configured branch for push triggers
 		triggerBranches := "[ " + gitBranch + " ]"
-		if gitBranch == "main" || gitBranch == "master" || gitBranch == "develop" {
-			triggerBranches = "[ main, develop ]"
-		}
 
 		ciTemplate := fmt.Sprintf("name: CI/CD Pipeline ("+env+")\n\n"+`on:
   push:
