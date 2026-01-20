@@ -135,8 +135,8 @@ services:
       - "traefik.enable=true"
 
       # 1. Define the Router (The "Entry" rule)
-      # serves all requests to %s/
-      - "traefik.http.routers.%s-frontend.rule=Host(` + "`%s`" + `)"
+      # serves all requests to ${GRAFT_DOMAIN}/
+      - "traefik.http.routers.%s-frontend.rule=Host(` + "`${GRAFT_DOMAIN}`" + `)"
       - "traefik.http.routers.%s-frontend.priority=1"
 
       # 2. Define the Service (The "Destination")
@@ -209,8 +209,8 @@ services:
       - "traefik.enable=true"
 
       # 1. Define the Router (The "Entry" rule)
-      # serves %s/api/* and strips /api prefix
-      - "traefik.http.routers.%s-backend.rule=Host(` + "`%s`" + `) && PathPrefix(` + "`/api`" + `)"
+      # serves ${GRAFT_DOMAIN}/api/* and strips /api prefix
+      - "traefik.http.routers.%s-backend.rule=Host(` + "`${GRAFT_DOMAIN}`" + `) && PathPrefix(` + "`/api`" + `)"
       # Important to add more priority of any path based reverse proxy than the main "/" path to prevent path not found issues
       - "traefik.http.routers.%s-backend.priority=10"
       
@@ -260,9 +260,9 @@ networks:
 # ============================================================================
 #
 # Routing:
-#   - %s/ → frontend (priority 1)
-#   - %s/api/* → backend (strips /api prefix)
-#   - Example: %s/api/users → backend receives /users
+#   - ${GRAFT_DOMAIN}/ → frontend (priority 1)
+#   - ${GRAFT_DOMAIN}/api/* → backend (strips /api prefix)
+#   - Example: ${GRAFT_DOMAIN}/api/users → backend receives /users
 #
 # Deployment Modes (graft.mode label):
 #   Git-based modes:
@@ -301,10 +301,9 @@ networks:
 	content := fmt.Sprintf(template,
 		p.Name, p.Domain, p.DeploymentMode, // Header info
 		graftMode,                                                                  // Frontend graft.mode
-		p.Domain, p.Name, p.Domain, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Frontend: domain, name-router, domain-host, name-priority, name-router-service, name-service, name-service-port, name-router-entrypoints, name-router-tls
+		p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Frontend: name-router, name-priority, name-router-service, name-service, name-service-port, name-router-entrypoints, name-router-tls
 		graftMode,                                                                                          // Backend graft.mode
-		p.Domain, p.Name, p.Domain, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Backend: domain, name-router, domain-host, name-priority, name-middleware, name-router-middleware, name-middleware-strip, name-router-service, name-service, name-service-port, name-router-entrypoints, name-router-tls
-		p.Domain, p.Domain, p.Domain, // Footer
+		p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Backend: name-router, name-priority, name-middleware, name-router-middleware, name-middleware-strip, name-router-service, name-service, name-service-port, name-router-entrypoints, name-router-tls
 	)
 	// Create env directory if it doesn't exist
 	envDir := filepath.Join(dir, "env")
@@ -323,7 +322,7 @@ networks:
 // EnsureGitignore ensures that sensitive Graft files are added to .gitignore
 func EnsureGitignore(dir string) error {
 	gitignorePath := filepath.Join(dir, ".gitignore")
-	gitignoreEntries := []string{"graft-compose.yml", ".graft/", "env/"}
+	gitignoreEntries := []string{"graft-compose.yml", ".graft/", "env/", "docker-compose.yml", "docker-compose-*.yml"}
 
 	var existingContent string
 	if data, err := os.ReadFile(gitignorePath); err == nil {
@@ -352,11 +351,6 @@ func EnsureGitignore(dir string) error {
 		}
 	}
 
-	if modified {
-		if err := os.WriteFile(gitignorePath, []byte(newContent), 0644); err != nil {
-			return fmt.Errorf("could not update .gitignore: %v", err)
-		}
-	}
 	if modified {
 		if err := os.WriteFile(gitignorePath, []byte(newContent), 0644); err != nil {
 			return fmt.Errorf("could not update .gitignore: %v", err)
@@ -438,9 +432,7 @@ func GenerateWorkflows(p *Project,env string, remoteURL string, mode string, web
 			}
 		}
 
-		deployTemplate := `name: Deploy
-
-on:
+		deployTemplate := "name: Deploy (" + env + ")\n\n" + `on:
 %s
   release:
     types: [published]
@@ -467,7 +459,7 @@ jobs:
               "registry": "ghcr.io"
             }'
 `
-		deployPath := filepath.Join(workflowsDir, "deploy.yml")
+		deployPath := filepath.Join(workflowsDir, fmt.Sprintf("deploy-%s.yml", env))
 		projFull := p.Name
 		if !strings.HasSuffix(projFull, "-"+env) {
 			projFull = fmt.Sprintf("%s-%s", projFull, env)
@@ -487,9 +479,7 @@ jobs:
 			triggerBranches = "[ main, develop ]"
 		}
 
-		ciTemplate := fmt.Sprintf(`name: CI/CD Pipeline
-
-on:
+		ciTemplate := fmt.Sprintf("name: CI/CD Pipeline ("+env+")\n\n"+`on:
   push:
     branches: %s
   pull_request:
@@ -505,7 +495,7 @@ jobs:
 		jobsContent := ""
 
 		// Parse compose file to see which services have builds
-		compose, err := ParseComposeFile("graft-compose.yml")
+		compose, err := ParseComposeFile("graft-compose.yml", "")
 		if err != nil {
 			return fmt.Errorf("failed to parse compose for workflow generation: %v", err)
 		}
@@ -569,7 +559,7 @@ jobs:
 		}
 
 		if jobsContent != "" {
-			ciPath := filepath.Join(workflowsDir, "ci.yml")
+			ciPath := filepath.Join(workflowsDir, fmt.Sprintf("ci-%s.yml", env))
 			ciContent := fmt.Sprintf(ciTemplate, jobsContent)
 			if err := os.WriteFile(ciPath, []byte(ciContent), 0644); err != nil {
 				return fmt.Errorf("failed to write ci workflow: %v", err)
@@ -616,7 +606,7 @@ jobs:
 		}
 
 		if cleanupSteps != "" {
-			cleanupPath := filepath.Join(workflowsDir, "cleanup.yml")
+			cleanupPath := filepath.Join(workflowsDir, fmt.Sprintf("cleanup-%s.yml", env))
 			cleanupContent := fmt.Sprintf(cleanupTemplate, cleanupSteps)
 			if err := os.WriteFile(cleanupPath, []byte(cleanupContent), 0644); err != nil {
 				return fmt.Errorf("failed to write cleanup workflow: %v", err)

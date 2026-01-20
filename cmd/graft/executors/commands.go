@@ -594,6 +594,7 @@ networks:
 	meta := &config.ProjectMetadata{
 		Name:            projName,
 		RemotePath:      remoteProjPath,
+		Domain:          domain,
 		DeploymentMode:  deploymentMode,
 		GitBranch:       gitBranch,
 		GraftHookURL:    currentHookURL,

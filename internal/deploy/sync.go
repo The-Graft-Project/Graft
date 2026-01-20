@@ -31,10 +31,13 @@ func SyncService(envname string, client *ssh.Client, p *Project, serviceName str
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", remoteProjName)
 
 	// Update project metadata with current remote path
-	meta := &config.ProjectMetadata{
-		Name:       p.Name,
-		RemotePath: remoteDir,
+	meta, _ := config.LoadProjectMetadata(envname)
+	if meta == nil {
+		meta = &config.ProjectMetadata{
+			Name: p.Name,
+		}
 	}
+	meta.RemotePath = remoteDir
 	if err := config.SaveProjectMetadata(envname, meta); err != nil {
 		fmt.Fprintf(stdout, "Warning: Could not save project metadata: %v\n", err)
 	}
@@ -46,7 +49,11 @@ func SyncService(envname string, client *ssh.Client, p *Project, serviceName str
 	}
 
 	// Parse compose file to get service configuration
-	compose, err := ParseComposeFile(localFile)
+	domain := ""
+	if meta != nil {
+		domain = meta.Domain
+	}
+	compose, err := ParseComposeFile(localFile, domain)
 	if err != nil {
 		return fmt.Errorf("failed to parse compose file: %v", err)
 	}
@@ -70,7 +77,7 @@ func SyncService(envname string, client *ssh.Client, p *Project, serviceName str
 	for sName := range compose.Services {
 		// Use a pointer to update the service in the map
 		sPtr := compose.Services[sName]
-		ProcessServiceEnvironment(sName, &sPtr, secrets)
+		ProcessServiceEnvironment(sName, &sPtr, secrets, envname)
 		compose.Services[sName] = sPtr
 	}
 
@@ -81,8 +88,9 @@ func SyncService(envname string, client *ssh.Client, p *Project, serviceName str
 	}
 
 	// Save the actual docker-compose.yml locally
-	if err := os.WriteFile("docker-compose.yml", updatedComposeData, 0644); err != nil {
-		return fmt.Errorf("failed to save docker-compose.yml: %v", err)
+	localComposeFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+	if err := os.WriteFile(localComposeFile, updatedComposeData, 0644); err != nil {
+		return fmt.Errorf("failed to save %s: %v", localComposeFile, err)
 	}
 
 	// Ensure .gitignore is up to date
@@ -94,26 +102,21 @@ func SyncService(envname string, client *ssh.Client, p *Project, serviceName str
 	}
 
 	// Upload env directory if it exists
+	doEnv := false
 	if _, err := os.Stat("env"); err == nil {
-		fmt.Fprintf(stdout, "📤 Uploading environment files...\n")
-		remoteEnvDir := path.Join(remoteDir, "env")
-		client.RunCommand(fmt.Sprintf("mkdir -p %s", remoteEnvDir), stdout, stderr)
-
-		// Map local env/* to remote env/*
-		files, _ := os.ReadDir("env")
-		for _, f := range files {
-			if !f.IsDir() {
-				localEnvPath := filepath.Join("env", f.Name())
-				remoteEnvPath := path.Join(remoteEnvDir, f.Name())
-				client.UploadFile(localEnvPath, remoteEnvPath)
-			}
+		doEnv = true
+	}
+	if doEnv {
+		if err := UploadEnvironmentFiles(envname, client, p, remoteDir, stdout, stderr); err != nil {
+			fmt.Fprintf(stdout, "⚠️  Environment upload warning: %v\n", err)
 		}
 	}
 
 	// Upload the generated docker-compose.yml
 	remoteCompose := path.Join(remoteDir, "docker-compose.yml")
 	fmt.Fprintf(stdout, "📤 Uploading generated docker-compose.yml...\n")
-	if err := client.UploadFile("docker-compose.yml", remoteCompose); err != nil {
+	localComposeFile = fmt.Sprintf("docker-compose-%s.yml", envname)
+	if err := client.UploadFile(localComposeFile, remoteCompose); err != nil {
 		return err
 	}
 
@@ -362,10 +365,11 @@ func Sync(envname string, client *ssh.Client, p *Project, noCache, heave, useGit
 	remoteDir := fmt.Sprintf("/opt/graft/projects/%s", remoteProjName)
 
 	// Update project metadata with current remote path
-	meta := &config.ProjectMetadata{
-		Name:       p.Name,
-		RemotePath: remoteDir,
+	meta, _ := config.LoadProjectMetadata(envname)
+	if meta == nil {
+		meta = &config.ProjectMetadata{Name: p.Name}
 	}
+	meta.RemotePath = remoteDir
 	if err := config.SaveProjectMetadata(envname, meta); err != nil {
 		fmt.Fprintf(stdout, "Warning: Could not save project metadata: %v\n", err)
 	}
@@ -381,7 +385,7 @@ func Sync(envname string, client *ssh.Client, p *Project, noCache, heave, useGit
 	}
 
 	// Parse compose file to get service configurations
-	compose, err := ParseComposeFile(localFile)
+	compose, err := ParseComposeFile(localFile, meta.Domain)
 	if err != nil {
 		return fmt.Errorf("failed to parse compose file: %v", err)
 	}
@@ -543,7 +547,7 @@ func Sync(envname string, client *ssh.Client, p *Project, noCache, heave, useGit
 	// Process environments for ALL services
 	for sName := range compose.Services {
 		sPtr := compose.Services[sName]
-		ProcessServiceEnvironment(sName, &sPtr, secrets)
+		ProcessServiceEnvironment(sName, &sPtr, secrets, envname)
 
 		// For serverbuild services, update build context to point to uploaded code
 		mode := getGraftMode(sPtr.Labels)
@@ -564,8 +568,9 @@ func Sync(envname string, client *ssh.Client, p *Project, noCache, heave, useGit
 	}
 
 	// Save the actual docker-compose.yml locally
-	if err := os.WriteFile("docker-compose.yml", updatedComposeData, 0644); err != nil {
-		return fmt.Errorf("failed to save docker-compose.yml: %v", err)
+	localComposeFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+	if err := os.WriteFile(localComposeFile, updatedComposeData, 0644); err != nil {
+		return fmt.Errorf("failed to save %s: %v", localComposeFile, err)
 	}
 
 	// Ensure .gitignore is up to date
@@ -573,24 +578,16 @@ func Sync(envname string, client *ssh.Client, p *Project, noCache, heave, useGit
 
 	// Upload env directory if it exists
 	if _, err := os.Stat("env"); err == nil {
-		fmt.Fprintf(stdout, "\n📤 Uploading environment files...\n")
-		remoteEnvDir := path.Join(remoteDir, "env")
-		client.RunCommand(fmt.Sprintf("mkdir -p %s", remoteEnvDir), stdout, stderr)
-
-		files, _ := os.ReadDir("env")
-		for _, f := range files {
-			if !f.IsDir() {
-				localEnvPath := filepath.Join("env", f.Name())
-				remoteEnvPath := path.Join(remoteEnvDir, f.Name())
-				client.UploadFile(localEnvPath, remoteEnvPath)
-			}
+		if err := UploadEnvironmentFiles(envname, client, p, remoteDir, stdout, stderr); err != nil {
+			fmt.Fprintf(stdout, "⚠️  Environment upload warning: %v\n", err)
 		}
 	}
 
 	// Upload docker-compose.yml
 	remoteCompose := path.Join(remoteDir, "docker-compose.yml")
 	fmt.Fprintln(stdout, "\n📤 Uploading generated docker-compose.yml...")
-	if err := client.UploadFile("docker-compose.yml", remoteCompose); err != nil {
+	localComposeFile = fmt.Sprintf("docker-compose-%s.yml", envname)
+	if err := client.UploadFile(localComposeFile, remoteCompose); err != nil {
 		return err
 	}
 
@@ -671,7 +668,12 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 	if doCompose {
 		// Find and parse the local graft-compose.yml file
 		localFile := "graft-compose.yml"
-		compose, err := ParseComposeFile(localFile)
+		meta, _ := config.LoadProjectMetadata(envname)
+		domain := ""
+		if meta != nil {
+			domain = meta.Domain
+		}
+		compose, err := ParseComposeFile(localFile, domain)
 		if err != nil {
 			return fmt.Errorf("failed to parse compose file: %v", err)
 		}
@@ -686,7 +688,7 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 		for sName := range compose.Services {
 
 			sPtr := compose.Services[sName]
-			ProcessServiceEnvironment(sName, &sPtr, secrets)
+			ProcessServiceEnvironment(sName, &sPtr, secrets, envname)
 
 			// If in git-images mode and has build, replace with GHCR image
 			mode := getGraftMode(sPtr.Labels)
@@ -723,8 +725,9 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 		}
 
 		// Save the actual docker-compose.yml locally
-		if err := os.WriteFile("docker-compose.yml", updatedComposeData, 0644); err != nil {
-			return fmt.Errorf("failed to save docker-compose.yml: %v", err)
+		localComposeFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+		if err := os.WriteFile(localComposeFile, updatedComposeData, 0644); err != nil {
+			return fmt.Errorf("failed to save %s: %v", localComposeFile, err)
 		}
 
 		// Ensure .gitignore is up to date
@@ -733,34 +736,8 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 
 	// Upload env directory if it exists
 	if doEnv {
-		localFile := "docker-compose.yml"
-		compose, err := ParseComposeFile(localFile)
-		if err != nil {
-			return fmt.Errorf("failed to parse compose file: %v", err)
-		}
-		fmt.Fprintf(stdout, "📤 Uploading environment files...\n")
-
-		for service := range compose.Services {
-			envpaths := compose.Services[service].EnvFiles
-			if len(envpaths) > 0 {
-				for _, envPath := range envpaths {
-					// Construct remote path
-					remoteEnvPath := path.Join(remoteDir, envPath)
-
-					// Extract directory from the env file path
-					remoteEnvDir := path.Dir(remoteEnvPath)
-
-					// Create parent directory on remote server
-					if err := client.RunCommand(fmt.Sprintf("mkdir -p %s", remoteEnvDir), stdout, stderr); err != nil {
-						return fmt.Errorf("failed to create remote directory %s: %v", remoteEnvDir, err)
-					}
-
-					// Upload the env file
-					if err := client.UploadFile(envPath, remoteEnvPath); err != nil {
-						return fmt.Errorf("failed to upload environment file %s for service %s: %v", envPath, service, err)
-					}
-				}
-			}
+		if err := UploadEnvironmentFiles(envname, client, p, remoteDir, stdout, stderr); err != nil {
+			return err
 		}
 	}
 	if doCompose {
@@ -772,7 +749,8 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 		}
 
 		fmt.Fprintf(stdout, "📤 Uploading generated docker-compose.yml to %s...\n", remoteCompose)
-		if err := client.UploadFile("docker-compose.yml", remoteCompose); err != nil {
+		localComposeFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+		if err := client.UploadFile(localComposeFile, remoteCompose); err != nil {
 			return fmt.Errorf("failed to upload docker-compose.yml: %v", err)
 		}
 
@@ -790,5 +768,53 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 
 	fmt.Fprintf(stdout, "✅ %s file synced!\n", printstr)
 
+	return nil
+}
+// UploadEnvironmentFiles handles environment-specific file uploads according to the universal path pattern
+func UploadEnvironmentFiles(envname string, client *ssh.Client, p *Project, remoteDir string, stdout, stderr io.Writer) error {
+	localFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+	if _, err := os.Stat(localFile); err != nil {
+		return nil // Nothing to do if no compose file
+	}
+
+	compose, err := ParseComposeFile(localFile, "")
+	if err != nil {
+		return fmt.Errorf("failed to parse generated compose file for environment sync: %v", err)
+	}
+
+	fmt.Fprintf(stdout, "📤 Uploading environment files for %s...\n", envname)
+
+	for service := range compose.Services {
+		// The generated docker-compose.yml now has universal paths like ./env/service.env
+		// But locally we have env/service.env.envname
+		var universalEnvPath string
+		s := compose.Services[service]
+		envpaths := s.GetEnvFiles()
+		if len(envpaths) > 0 {
+			universalEnvPath = envpaths[0] // e.g., ./env/web.env
+		}
+
+		if universalEnvPath != "" {
+			localMergedFile := filepath.Join("env", fmt.Sprintf("%s.env.%s", service, envname))
+			
+			// Check if this environment-specific merged file exists
+			if _, err := os.Stat(localMergedFile); err == nil {
+				// Construct remote path (universal)
+				remoteEnvPath := path.Join(remoteDir, universalEnvPath)
+				remoteEnvDir := path.Dir(remoteEnvPath)
+
+				// Create parent directory on remote server
+				if err := client.RunCommand(fmt.Sprintf("mkdir -p %s", remoteEnvDir), stdout, stderr); err != nil {
+					return fmt.Errorf("failed to create remote directory %s: %v", remoteEnvDir, err)
+				}
+
+				// Upload the local merged file to the remote universal path
+				fmt.Fprintf(stdout, "   -> %s as %s\n", localMergedFile, universalEnvPath)
+				if err := client.UploadFile(localMergedFile, remoteEnvPath); err != nil {
+					return fmt.Errorf("failed to upload environment file %s for service %s: %v", localMergedFile, service, err)
+				}
+			}
+		}
+	}
 	return nil
 }

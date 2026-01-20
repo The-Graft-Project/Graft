@@ -19,8 +19,15 @@ func (e *Executor) RunMap(args []string) {
 	// Load project config
 	cfg := e
 
-	// Parse graft-compose.yml
-	compose, err := deploy.ParseComposeFile("graft-compose.yml")
+	// Load metadata to get environment-specific domain
+	meta, _ := config.LoadProjectMetadata(e.Env)
+	domain := ""
+	if meta != nil {
+		domain = meta.Domain
+	}
+
+	// Parse graft-compose.yml with resolved domain
+	compose, err := deploy.ParseComposeFile("graft-compose.yml", domain)
 	if err != nil {
 		fmt.Printf("Error: Failed to parse graft-compose.yml: %v\n", err)
 		return
@@ -180,8 +187,15 @@ func (e *Executor) RunMapService(serviceName string) {
 	// Load project config
 	cfg := e
 
-	// Parse graft-compose.yml
-	compose, err := deploy.ParseComposeFile("graft-compose.yml")
+	// Load metadata to get environment-specific domain
+	meta, _ := config.LoadProjectMetadata(e.Env)
+	domain := ""
+	if meta != nil {
+		domain = meta.Domain
+	}
+
+	// Parse graft-compose.yml with resolved domain
+	compose, err := deploy.ParseComposeFile("graft-compose.yml", domain)
 	if err != nil {
 		fmt.Printf("Error: Failed to parse graft-compose.yml: %v\n", err)
 		return

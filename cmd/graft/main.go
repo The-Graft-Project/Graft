@@ -100,7 +100,7 @@ func main() {
 				fmt.Println("Error: Cannot create env named prod")
 				return
 			}
-			e.NewEnv(name)
+			e.RunNewEnv(name)
 			return
 		}
 		env := args[1]
@@ -108,7 +108,17 @@ func main() {
 		//load project metadata
 		projectmeta, err := config.LoadProjectMetadata(env)
 		if err != nil {
-			fmt.Printf("Failed to load project metadata: %v\n", err)
+			fmt.Printf("❌ Error: Environment '%s' not found for this project.\n", env)
+			
+			// Show available environments
+			projEnv, err := config.LoadProjectEnv()
+			if err == nil && projEnv != nil {
+				fmt.Println("\n📋 Available environments:")
+				for eName := range projEnv.Env {
+					fmt.Printf("  - %s\n", eName)
+				}
+				fmt.Println("\n💡 Use 'graft env --new <name>' to create a new environment.")
+			}
 			return
 		}
 

@@ -193,6 +193,7 @@ func LoadSecrets() (map[string]string, error) {
 type ProjectMetadata struct {
 	Name            string `json:"name"`
 	RemotePath      string `json:"remote_path"`
+	Domain          string `json:"domain,omitempty"`
 	Initialized     bool   `json:"initialized"`
 	DeploymentMode  string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild"
 	GitBranch       string `json:"git_branch,omitempty"`
@@ -267,16 +268,28 @@ func SaveProjectMetadata(envname string, meta *ProjectMetadata) error {
 
 // LoadProjectMetadata loads project metadata from .graft/project.json
 func LoadProjectMetadata(name string) (*ProjectMetadata, error) {
+	projectEnv, err := LoadProjectEnv()
+	if err != nil {
+		return nil, err
+	}
+	meta, exists := projectEnv.Env[name]
+	if !exists {
+		return nil, fmt.Errorf("environment '%s' not found", name)
+	}
+	return meta, nil
+}
+
+// LoadProjectEnv loads the entire project environment configuration
+func LoadProjectEnv() (*ProjectEnv, error) {
 	path := filepath.Join(".graft", "project.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var ProjectEnv ProjectEnv
-	if err := json.Unmarshal(data, &ProjectEnv); err != nil {
+	var projectEnv ProjectEnv
+	if err := json.Unmarshal(data, &projectEnv); err != nil {
 		return nil, err
 	}
-	meta := ProjectEnv.Env[name]
-	return meta, nil
+	return &projectEnv, nil
 }

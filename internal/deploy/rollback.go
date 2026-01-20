@@ -134,7 +134,7 @@ func RestoreServiceRollback(client *ssh.Client, p *Project, backupTimestamp stri
 	}
 	defer os.Remove(tmpBackupCompose)
 
-	backupCompose, err := ParseComposeFile(tmpBackupCompose)
+	backupCompose, err := ParseComposeFile(tmpBackupCompose, "")
 	if err != nil {
 		return fmt.Errorf("failed to parse backup compose: %v", err)
 	}
@@ -151,7 +151,7 @@ func RestoreServiceRollback(client *ssh.Client, p *Project, backupTimestamp stri
 	}
 	defer os.Remove(tmpCurrentCompose)
 
-	currentCompose, err := ParseComposeFile(tmpCurrentCompose)
+	currentCompose, err := ParseComposeFile(tmpCurrentCompose, "")
 	if err != nil {
 		return fmt.Errorf("failed to parse current remote compose: %v", err)
 	}

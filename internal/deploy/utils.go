@@ -24,9 +24,30 @@ type ComposeService struct {
 	Build       *BuildConfig           `yaml:"build,omitempty"`
 	Image       string                 `yaml:"image,omitempty"`
 	Environment interface{}            `yaml:"environment,omitempty"`
-	EnvFiles    []string               `yaml:"env_file,omitempty"`
+	EnvFiles    interface{}            `yaml:"env_file,omitempty"`
 	Labels      []string               `yaml:"labels,omitempty"`
 	OtherFields map[string]interface{} `yaml:",inline"`
+}
+
+func (s *ComposeService) GetEnvFiles() []string {
+	if s.EnvFiles == nil {
+		return nil
+	}
+	switch v := s.EnvFiles.(type) {
+	case string:
+		return []string{v}
+	case []interface{}:
+		var result []string
+		for _, item := range v {
+			if str, ok := item.(string); ok {
+				result = append(result, str)
+			}
+		}
+		return result
+	case []string:
+		return v
+	}
+	return nil
 }
 
 type BuildConfig struct {
@@ -34,11 +55,17 @@ type BuildConfig struct {
 	Dockerfile string `yaml:"dockerfile,omitempty"`
 }
 
-func ParseComposeFile(path string) (*DockerComposeFile, error) {
+func ParseComposeFile(path string, domain string) (*DockerComposeFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+
+	// Replace domain placeholder if provided
+	if domain != "" {
+		data = []byte(strings.ReplaceAll(string(data), "${GRAFT_DOMAIN}", domain))
+	}
+
 	var compose DockerComposeFile
 	if err := yaml.Unmarshal(data, &compose); err != nil {
 		return nil, err
@@ -57,52 +84,100 @@ func getGraftMode(labels []string) string {
 }
 
 // ProcessServiceEnvironment extracts environment variables, resolves secrets, and writes to an .env file
-func ProcessServiceEnvironment(serviceName string, service *ComposeService, secrets map[string]string) ([]string, error) {
-	var envLines []string
+func ProcessServiceEnvironment(serviceName string, service *ComposeService, secrets map[string]string, envname string) ([]string, error) {
+	var finalEnvLines []string
+	actualEnvFiles := service.GetEnvFiles()
 
-	// Handle environment as interface{} (could be map or slice)
+	// 1. First, process literal environment variables from the compose file
 	switch env := service.Environment.(type) {
 	case map[string]interface{}:
 		for k, v := range env {
 			val := fmt.Sprintf("%v", v)
-			envLines = append(envLines, fmt.Sprintf("%s=%s", k, val))
+			finalEnvLines = append(finalEnvLines, fmt.Sprintf("%s=%s", k, val))
 		}
 	case []interface{}:
 		for _, v := range env {
-			envLines = append(envLines, fmt.Sprintf("%v", v))
+			finalEnvLines = append(finalEnvLines, fmt.Sprintf("%v", v))
+		}
+	case []string:
+		finalEnvLines = append(finalEnvLines, env...)
+	}
+
+	// 2. Next, process matched env_files
+	for _, envPath := range actualEnvFiles {
+		basename := filepath.Base(envPath)
+		
+		// Logic: 
+		// - Explicit matches (e.g. .env.prod for prod, .env.dev for dev) are always included.
+		// - Generic matches (.env, env, backend.env - files with 0 or 1 dots) 
+		//   are ONLY included for the "prod" environment (user convention: generic = prod).
+		
+		isExplicitlyOurs := strings.Contains(basename, "."+envname) || 
+							strings.Contains(basename, envname+".") ||
+							strings.HasSuffix(basename, "."+envname)
+		
+		// A file is considered "generic/base" if it has only one dot (like backend.env or .env)
+		isGeneric := strings.Count(basename, ".") <= 1
+
+		shouldInclude := false
+		if isExplicitlyOurs {
+			shouldInclude = true
+		} else if isGeneric {
+			// Include generic/base files ONLY for production environment
+			if envname == "prod" {
+				shouldInclude = true
+			}
+		}
+
+		if shouldInclude {
+			content, err := os.ReadFile(envPath)
+			if err == nil {
+				fmt.Printf("   🔗 Merging env file: %s\n", envPath)
+				// Clean content and add to lines
+				cStr := strings.TrimSpace(string(content))
+				if cStr != "" {
+					finalEnvLines = append(finalEnvLines, cStr)
+				}
+			} else {
+				fmt.Printf("   ⚠️  Skip/Error reading env file %s: %v\n", envPath, err)
+			}
+		} else {
+			fmt.Printf("   ⏭️  Skipping env file: %s (not scoped for %s)\n", envPath, envname)
 		}
 	}
 
-	if len(envLines) == 0 {
+	// If we found nothing at all, don't modify the service or write files
+	if len(finalEnvLines) == 0 {
 		return nil, nil
 	}
 
-	// Resolve secrets in environment variables
-	for i := range envLines {
+	// 3. Resolve secrets in the collected environment lines
+	for i := range finalEnvLines {
 		for key, value := range secrets {
-			envLines[i] = strings.ReplaceAll(envLines[i], fmt.Sprintf("${%s}", key), value)
+			finalEnvLines[i] = strings.ReplaceAll(finalEnvLines[i], fmt.Sprintf("${%s}", key), value)
 		}
 	}
 
-	// Create env directory
+	// 4. Create local env directory and save the merged file
 	if err := os.MkdirAll("env", 0755); err != nil {
 		return nil, err
 	}
 
-	// Write to env/service.env
-	envFileRelPath := filepath.Join("env", serviceName+".env")
-	err := os.WriteFile(envFileRelPath, []byte(strings.Join(envLines, "\n")), 0644)
+	// File naming: service.env.prod
+	mergedFileName := fmt.Sprintf("%s.env.%s", serviceName, envname)
+	mergedEnvPath := filepath.Join("env", mergedFileName)
+	
+	err := os.WriteFile(mergedEnvPath, []byte(strings.Join(finalEnvLines, "\n")), 0644)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to write merged env file %s: %v", mergedEnvPath, err)
 	}
 
-	// Update service to use env_file and clear environment
+	// 5. Update the service struct for the universal docker-compose.yml
 	service.Environment = nil
+	// Universal path on server: env/service.env
+	service.EnvFiles = []string{"./env/" + serviceName + ".env"}
 
-	// Keep existing env_files if any
-	service.EnvFiles = append(service.EnvFiles, "./"+filepath.ToSlash(envFileRelPath))
-
-	return []string{envFileRelPath}, nil
+	return []string{mergedEnvPath}, nil
 }
 
 // Create a tarball of a directory

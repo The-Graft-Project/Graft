@@ -1,2 +1,0 @@
-# github.com/skssmd/graft/internal/infra
-internal\infra\backup.go:116:12: undefined: cfg
