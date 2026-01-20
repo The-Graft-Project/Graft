@@ -300,7 +300,7 @@ graft rollback config        # Configure retention
 
 ## Roadmap
 
-- [ ] Dev/staging environment separation
+
 - [ ] Slack/Discord deployment notifications
 - [ ] Graft-Hook configurations
 
