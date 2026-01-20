@@ -41,8 +41,8 @@ jobs:
       - name: Install syft (for SBOM generation)
         uses: anchore/sbom-action/download-syft@v0.15.10
 
-      - name: Install snapcraft
-        run: sudo snap install snapcraft --classic
+      # - name: Install snapcraft
+      #   run: sudo snap install snapcraft --classic
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -53,6 +53,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          WINGET_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
           FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
