@@ -303,7 +303,118 @@ func (e *Executor) RunMapService(serviceName string) {
 
 	fmt.Println("\n✅ DNS mapping complete for service:", serviceName)
 }
+func (e *Executor) RunHookMap() {
+	reader := bufio.NewReader(os.Stdin)
 
+	// Load project config
+	cfg := e
+
+	// Load metadata to get environment-specific domain
+	meta, _ := config.LoadProjectMetadata(e.Env)
+	domain := ""
+	if meta != nil {
+		domain = meta.GraftHookURL
+	}
+	domain = strings.TrimPrefix(domain, "https://")
+	domain = strings.TrimPrefix(domain, "http://")
+	
+	if domain == "" {
+		fmt.Println("❌ No domain found in project metadata")
+		return
+	}
+
+	// Display the domain to be mapped
+	fmt.Printf("📋 Mapping domain: %s\n", domain)
+
+	// Get server IP
+	fmt.Println("\n🌐 Detecting server IP...")
+	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: Could not connect to server: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	// Get public IP from server
+	var ipOutput strings.Builder
+	err = client.RunCommand("curl -s https://api.ipify.org", &ipOutput, os.Stderr)
+	serverIP := strings.TrimSpace(ipOutput.String())
+
+	if err != nil || serverIP == "" {
+		fmt.Print("Could not auto-detect server IP. Enter manually: ")
+		input, _ := reader.ReadString('\n')
+		serverIP = strings.TrimSpace(input)
+	} else {
+		fmt.Printf("Detected IP: %s\n", serverIP)
+	}
+
+	cloudflare, err := config.LoadCloudFlareConfig()
+	if err != nil {
+		fmt.Println("❌ Failed to load cloudflare config")
+		return
+	}
+
+	// Get Cloudflare credentials
+	apiToken, zoneID := fetchCloudflareCredentials(cloudflare, reader)
+	if apiToken == "" || zoneID == "" {
+		fmt.Println("❌ Cloudflare API Token and Zone ID are required.")
+		return
+	}
+
+	// Verify DNS ownership
+	fmt.Println("\n🔐 Verifying DNS ownership...")
+	verified, err := dns.VerifyDNSOwnership("", apiToken, zoneID)
+	if err != nil || !verified {
+		fmt.Printf("❌ DNS ownership verification failed: %v\n", err)
+		return
+	}
+	fmt.Println("✅ DNS ownership verified")
+
+	// Process the domain
+	fmt.Println("\n📍 Checking DNS record...")
+
+	// Get existing record
+	record, err := dns.GetDNSRecord(domain, "", apiToken, zoneID)
+
+	if err != nil {
+		fmt.Printf("❌ Error checking %s: %v\n", domain, err)
+		return
+	}
+
+	if record != nil {
+		// Record exists
+		if record.Content == serverIP {
+			fmt.Printf("✅ %s → %s (already correct)\n", domain, serverIP)
+		} else {
+			fmt.Printf("⚠️  %s → %s (exists, current: %s)\n", domain, serverIP, record.Content)
+			fmt.Printf("    Overwrite with %s? (y/n): ", serverIP)
+			confirm, _ := reader.ReadString('\n')
+			confirm = strings.ToLower(strings.TrimSpace(confirm))
+
+			if confirm == "y" || confirm == "yes" {
+				err = dns.UpdateDNSRecord(record.ID, serverIP, apiToken, zoneID)
+				if err != nil {
+					fmt.Printf("❌ Failed to update: %v\n", err)
+					return
+				}
+				fmt.Printf("✅ Updated %s → %s\n", domain, serverIP)
+			} else {
+				fmt.Printf("⏭️  Skipped\n")
+			}
+		}
+	} else {
+		// Record doesn't exist, create it
+		fmt.Printf("➕ %s → Creating new record...\n", domain)
+		err = dns.CreateDNSRecord(domain, "", serverIP, apiToken, zoneID)
+		if err != nil {
+			fmt.Printf("❌ Failed to create: %v\n", err)
+			return
+		}
+		fmt.Printf("✅ Created %s → %s\n", domain, serverIP)
+	}
+
+	fmt.Println("\n✅ DNS mapping complete!")
+}
 func fetchCloudflareCredentials(cfg *config.Cloudflare, reader *bufio.Reader) (string, string) {
 	// 1. Try environment variables
 	envToken := os.Getenv("CLOUDFLARE_API_TOKEN")

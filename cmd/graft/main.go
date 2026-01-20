@@ -137,7 +137,13 @@ func main() {
 	case "init":
 		e.RunInit(args[1:])
 	case "hook":
-		e.RunHook(args[1:])
+		if args[1]=="map"{
+			e.RunHookMap()
+			return
+		}else{
+e.RunHook(args[1:])
+		}
+		
 	case "host":
 		if len(args) < 2 {
 			fmt.Println("Usage: graft host [init|clean|sh|self-destruct]")
@@ -251,18 +257,6 @@ func main() {
 		} else {
 			e.RunMap(args[1:])
 		}
-	case "env":
-
-		///--new name
-		//asks server
-		//ask domain
-		//setup server
-		//.env.name
-
-		// name action
-		// regular actions(all commands)
-		//for env it takes //.env.name and uses that
-
 	default:
 		// Handle the --pull flag as requested in the specific format
 		// foundPull := false
