@@ -88,7 +88,10 @@ func SyncService(envname string, client *ssh.Client, p *Project, serviceName str
 	}
 
 	// Save the actual docker-compose.yml locally
-	localComposeFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+	localComposeFile := filepath.Join("compose", fmt.Sprintf("%s.yml", envname))
+	if err := os.MkdirAll("compose", 0755); err != nil {
+		return fmt.Errorf("failed to create compose directory: %v", err)
+	}
 	if err := os.WriteFile(localComposeFile, updatedComposeData, 0644); err != nil {
 		return fmt.Errorf("failed to save %s: %v", localComposeFile, err)
 	}
@@ -112,10 +115,10 @@ func SyncService(envname string, client *ssh.Client, p *Project, serviceName str
 		}
 	}
 
-	// Upload the generated docker-compose.yml
+	// Upload the generated docker-compose.yml from compose/ directory
 	remoteCompose := path.Join(remoteDir, "docker-compose.yml")
 	fmt.Fprintf(stdout, "📤 Uploading generated docker-compose.yml...\n")
-	localComposeFile = fmt.Sprintf("docker-compose-%s.yml", envname)
+	localComposeFile = filepath.Join("compose", fmt.Sprintf("%s.yml", envname))
 	if err := client.UploadFile(localComposeFile, remoteCompose); err != nil {
 		return err
 	}
@@ -568,7 +571,10 @@ func Sync(envname string, client *ssh.Client, p *Project, noCache, heave, useGit
 	}
 
 	// Save the actual docker-compose.yml locally
-	localComposeFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+	localComposeFile := filepath.Join("compose", fmt.Sprintf("%s.yml", envname))
+	if err := os.MkdirAll("compose", 0755); err != nil {
+		return fmt.Errorf("failed to create compose directory: %v", err)
+	}
 	if err := os.WriteFile(localComposeFile, updatedComposeData, 0644); err != nil {
 		return fmt.Errorf("failed to save %s: %v", localComposeFile, err)
 	}
@@ -586,7 +592,7 @@ func Sync(envname string, client *ssh.Client, p *Project, noCache, heave, useGit
 	// Upload docker-compose.yml
 	remoteCompose := path.Join(remoteDir, "docker-compose.yml")
 	fmt.Fprintln(stdout, "\n📤 Uploading generated docker-compose.yml...")
-	localComposeFile = fmt.Sprintf("docker-compose-%s.yml", envname)
+	localComposeFile = filepath.Join("compose", fmt.Sprintf("%s.yml", envname))
 	if err := client.UploadFile(localComposeFile, remoteCompose); err != nil {
 		return err
 	}
@@ -725,7 +731,10 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 		}
 
 		// Save the actual docker-compose.yml locally
-		localComposeFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+		localComposeFile := filepath.Join("compose", fmt.Sprintf("%s.yml", envname))
+		if err := os.MkdirAll("compose", 0755); err != nil {
+			return fmt.Errorf("failed to create compose directory: %v", err)
+		}
 		if err := os.WriteFile(localComposeFile, updatedComposeData, 0644); err != nil {
 			return fmt.Errorf("failed to save %s: %v", localComposeFile, err)
 		}
@@ -749,7 +758,7 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 		}
 
 		fmt.Fprintf(stdout, "📤 Uploading generated docker-compose.yml to %s...\n", remoteCompose)
-		localComposeFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+		localComposeFile := filepath.Join("compose", fmt.Sprintf("%s.yml", envname))
 		if err := client.UploadFile(localComposeFile, remoteCompose); err != nil {
 			return fmt.Errorf("failed to upload docker-compose.yml: %v", err)
 		}
@@ -770,9 +779,10 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 
 	return nil
 }
+
 // UploadEnvironmentFiles handles environment-specific file uploads according to the universal path pattern
 func UploadEnvironmentFiles(envname string, client *ssh.Client, p *Project, remoteDir string, stdout, stderr io.Writer) error {
-	localFile := fmt.Sprintf("docker-compose-%s.yml", envname)
+	localFile := filepath.Join("compose", fmt.Sprintf("%s.yml", envname))
 	if _, err := os.Stat(localFile); err != nil {
 		return nil // Nothing to do if no compose file
 	}
@@ -796,7 +806,7 @@ func UploadEnvironmentFiles(envname string, client *ssh.Client, p *Project, remo
 
 		if universalEnvPath != "" {
 			localMergedFile := filepath.Join("env", fmt.Sprintf("%s.env.%s", service, envname))
-			
+
 			// Check if this environment-specific merged file exists
 			if _, err := os.Stat(localMergedFile); err == nil {
 				// Construct remote path (universal)

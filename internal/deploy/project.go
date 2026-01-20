@@ -322,7 +322,7 @@ networks:
 // EnsureGitignore ensures that sensitive Graft files are added to .gitignore
 func EnsureGitignore(dir string) error {
 	gitignorePath := filepath.Join(dir, ".gitignore")
-	gitignoreEntries := []string{"graft-compose.yml", ".graft/", "env/", "docker-compose.yml", "docker-compose-*.yml"}
+	gitignoreEntries := []string{"graft-compose.yml", ".graft/", "env/", "compose/"}
 
 	var existingContent string
 	if data, err := os.ReadFile(gitignorePath); err == nil {
