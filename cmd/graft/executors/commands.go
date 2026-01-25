@@ -511,7 +511,7 @@ func (e *Executor) RunInit(args []string) {
 				hookCompose := fmt.Sprintf(`version: '3.8'
 services:
   graft-hook:
-    image: ghcr.io/skssmd/graft-hook:latest
+    image: ghcr.io/the-graft-project/graft-hook:latest
     environment:
       - configpath=/opt/graft/config/projects.json
     labels:

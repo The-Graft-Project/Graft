@@ -37,7 +37,7 @@ brews:
     # You'll need to create a repo named homebrew-tap (or homebrew-<anything>)
     name: graft
     repository:
-      owner: skssmd  # Your GitHub username
+      owner: the-graft-project  # Your GitHub username
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     
@@ -50,7 +50,7 @@ brews:
     directory: Formula
     
     # Homepage of your project
-    homepage: "https://github.com/skssmd/graft"
+    homepage: "https://github.com/the-graft-project/graft"
     
     # Description for Homebrew
     description: "Agentless deployment tool extending Docker Compose to cloud via SSH"
@@ -73,7 +73,7 @@ nfpms:
     
     # Your info
     vendor: skssmd
-    homepage: https://github.com/skssmd/graft
+    homepage: https://github.com/the-graft-project/graft
     maintainer: skssmd <skssmd78475@gmail.com>
     
     # Description
@@ -150,7 +150,7 @@ winget:
     package_identifier: skssmd.Graft 
     license: MIT
     copyright: Copyright (c) 2025 skssmd
-    homepage: https://github.com/skssmd/Graft
+    homepage: https://github.com/the-graft-project/graft
     short_description: A high-performance, zero-overhead deployment engine that extends the Docker Compose workflow to cloud infrastructure via SSH
     description: |
       A high-performance, zero-overhead deployment engine that extends the Docker Compose workflow 
@@ -160,7 +160,6 @@ winget:
     
     tags:
       - graft
-      - Graft
       - deployment
       - devops
       - dev ops
@@ -194,7 +193,7 @@ winget:
     
     # Repository configuration
     repository:
-      owner: skssmd                    # ← CHANGED: Your fork, not microsoft
+      owner: the-graft-project                    # ← CHANGED: Your fork, not microsoft
       name: winget-pkgs
       branch: "{{.ProjectName}}-{{.Version}}-{{.ShortCommit}}"
       token: "{{ .Env.WINGET_GITHUB_TOKEN }}"

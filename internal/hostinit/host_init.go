@@ -15,30 +15,51 @@ func InitHost(client *ssh.Client, setupPostgres, setupRedis, exposePostgres, exp
 	// Detect OS and set appropriate package manager commands
 	var dockerInstallCmd, composeInstallCmd string
 
-	// Check if it's Amazon Linux (uses yum/dnf)
+	// Use official Docker installation script for all Linux distributions to ensure latest stable version
+	// This script installs docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, and docker-compose-plugin
+	installCmd := "curl -fsSL https://get.docker.com | sudo sh && sudo systemctl start docker && sudo systemctl enable docker && sudo usermod -aG docker $USER"
+
 	if err := client.RunCommand("cat /etc/os-release | grep -i 'amazon linux'", nil, nil); err == nil {
 		fmt.Fprintln(stdout, "🔍 Detected: Amazon Linux")
-		dockerInstallCmd = "sudo yum update -y && sudo yum install -y docker && sudo systemctl start docker && sudo systemctl enable docker && sudo usermod -aG docker $USER"
-		// Install Docker Compose v2 plugin and buildx
-		composeInstallCmd = `sudo mkdir -p /usr/local/lib/docker/cli-plugins && \
-sudo curl -SL https://github.com/docker/compose/releases/download/v5.0.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
-sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && \
-sudo curl -SL https://github.com/docker/buildx/releases/download/v0.30.1/buildx-v0.30.1.linux-amd64 -o /usr/local/lib/docker/cli-plugins/docker-buildx && \
-sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx`
+		dockerInstallCmd = installCmd
+		composeInstallCmd = installCmd
 	} else if err := client.RunCommand("cat /etc/os-release | grep -i 'ubuntu\\|debian'", nil, nil); err == nil {
 		fmt.Fprintln(stdout, "🔍 Detected: Ubuntu/Debian")
-		dockerInstallCmd = "curl -fsSL https://get.docker.com | sudo sh && sudo systemctl start docker && sudo systemctl enable docker && sudo usermod -aG docker $USER"
-		composeInstallCmd = `sudo mkdir -p /usr/local/lib/docker/cli-plugins && \
-sudo curl -SL https://github.com/docker/compose/releases/download/v5.0.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
-sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose`
+		// Wait for any existing apt processes to finish
+		waitCmd := "while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do echo 'Waiting for apt lock...'; sleep 3; done"
+		
+		ubuntuInstallCmd := `
+# Uninstall conflicting packages
+for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do sudo apt-get remove -y $pkg || true; done
+
+# Add Docker's official GPG key
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+# Add the repository to Apt sources
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER`
+
+		dockerInstallCmd = waitCmd + " && " + ubuntuInstallCmd
+		composeInstallCmd = dockerInstallCmd
 	} else {
-		fmt.Fprintln(stdout, "🔍 Detected: Generic Linux (using Docker install script)")
-		dockerInstallCmd = "curl -fsSL https://get.docker.com | sudo sh && sudo systemctl start docker && sudo systemctl enable docker && sudo usermod -aG docker $USER"
-		composeInstallCmd = `sudo mkdir -p /usr/local/lib/docker/cli-plugins && \
-sudo curl -SL https://github.com/docker/compose/releases/download/v5.0.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
-sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && \
-sudo curl -SL https://github.com/docker/buildx/releases/download/v0.30.1/buildx-v0.30.1.linux-amd64 -o /usr/local/lib/docker/cli-plugins/docker-buildx && \
-sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx`
+		fmt.Fprintln(stdout, "🔍 Detected: Generic Linux")
+		dockerInstallCmd = installCmd
+		composeInstallCmd = installCmd
 	}
 
 	steps := []struct {
@@ -79,7 +100,7 @@ version: '3.8'
 services:
   traefik:
     container_name: graft-traefik
-    image: traefik:v3.6
+    image: traefik:v3
     command:
       # API and Dashboard
       - "--api.insecure=true"

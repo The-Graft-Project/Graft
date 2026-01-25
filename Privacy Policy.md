@@ -22,4 +22,4 @@ All deployment instructions, Docker configurations, and Traefik setups are trans
 Since Graft does not use server-side agents, the security of your deployments relies on the integrity of your local machine and your SSH keys. We recommend following standard security practices for managing your private keys and server access.
 
 ---
-*For questions regarding this policy, please open an issue on the [Graft GitHub Repository](https://github.com/skssmd/Graft/issues).*
+*For questions regarding this policy, please open an issue on the [Graft GitHub Repository](https://github.com/the-graft-docs/Graft/issues).*
