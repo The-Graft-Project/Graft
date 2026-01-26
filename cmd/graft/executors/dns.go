@@ -10,14 +10,10 @@ import (
 	"github.com/skssmd/graft/internal/config"
 	"github.com/skssmd/graft/internal/deploy"
 	"github.com/skssmd/graft/internal/dns"
-	"github.com/skssmd/graft/internal/ssh"
 )
 
 func (e *Executor) RunMap(args []string) {
 	reader := bufio.NewReader(os.Stdin)
-
-	// Load project config
-	cfg := e
 
 	// Load metadata to get environment-specific domain
 	meta, _ := config.LoadProjectMetadata(e.Env)
@@ -64,7 +60,7 @@ func (e *Executor) RunMap(args []string) {
 
 	// Get server IP
 	fmt.Println("\n🌐 Detecting server IP...")
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: Could not connect to server: %v\n", err)
 		return
@@ -184,9 +180,6 @@ func (e *Executor) RunMap(args []string) {
 func (e *Executor) RunMapService(serviceName string) {
 	reader := bufio.NewReader(os.Stdin)
 
-	// Load project config
-	cfg := e
-
 	// Load metadata to get environment-specific domain
 	meta, _ := config.LoadProjectMetadata(e.Env)
 	domain := ""
@@ -220,7 +213,7 @@ func (e *Executor) RunMapService(serviceName string) {
 
 	// Get server IP
 	fmt.Println("\n🌐 Detecting server IP...")
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: Could not connect to server: %v\n", err)
 		return
@@ -306,9 +299,7 @@ func (e *Executor) RunMapService(serviceName string) {
 func (e *Executor) RunHookMap() {
 	reader := bufio.NewReader(os.Stdin)
 
-	// Load project config
-	cfg := e
-
+	
 	// Load metadata to get environment-specific domain
 	meta, _ := config.LoadProjectMetadata(e.Env)
 	domain := ""
@@ -328,7 +319,7 @@ func (e *Executor) RunHookMap() {
 
 	// Get server IP
 	fmt.Println("\n🌐 Detecting server IP...")
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: Could not connect to server: %v\n", err)
 		return

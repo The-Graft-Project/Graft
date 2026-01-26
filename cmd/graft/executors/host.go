@@ -10,13 +10,12 @@ import (
 
 	"github.com/skssmd/graft/internal/config"
 	"github.com/skssmd/graft/internal/hostinit"
-	"github.com/skssmd/graft/internal/ssh"
 )
 
 func (e *Executor) RunHostInit() {
-	cfg := e
+	cfg:=e
 
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -34,7 +33,7 @@ func (e *Executor) RunHostInit() {
 	}
 
 	// Register in global registry
-	gCfg, _ := config.LoadGlobalConfig()
+	gCfg := e.GlobalConfig
 	if gCfg != nil {
 		if gCfg.Servers == nil {
 			gCfg.Servers = make(map[string]config.ServerConfig)
@@ -113,9 +112,8 @@ func (e *Executor) RunHostInit() {
 }
 
 func (e *Executor) RunHostClean() {
-	cfg := e
 
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -145,15 +143,14 @@ func (e *Executor) RunHostClean() {
 	fmt.Println("\n✅ Cleanup complete!")
 }
 func (e *Executor) RunHostSelfDestruct() {
-	cfg := e
 
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("\n⚠️  WARNING: DESTRUCTIVE OPERATION ⚠️")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("This will PERMANENTLY DELETE all Graft infrastructure on:\n")
-	fmt.Printf("  Host: %s\n", cfg.Server.Host)
-	fmt.Printf("  Registry: %s\n\n", cfg.Server.RegistryName)
+	fmt.Printf("  Host: %s\n", e.Server.Host)
+	fmt.Printf("  Registry: %s\n\n", e.Server.RegistryName)
 	fmt.Println("The following will be destroyed:")
 	fmt.Println("  • Gateway (Traefik) - including SSL certificates")
 	fmt.Println("  • Infrastructure (Postgres, Redis) - including ALL DATA")
@@ -181,7 +178,7 @@ func (e *Executor) RunHostSelfDestruct() {
 		return
 	}
 
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -262,9 +259,9 @@ func (e *Executor) RunHostSelfDestruct() {
 }
 
 func (e *Executor) RunHostShell(commandArgs []string) {
-	cfg := e
+	
 
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -273,14 +270,14 @@ func (e *Executor) RunHostShell(commandArgs []string) {
 
 	if len(commandArgs) == 0 {
 		// Interactive SSH
-		fmt.Printf("💻 Starting interactive SSH session on '%s' (%s)...\n", cfg.Server.RegistryName, cfg.Server.Host)
+		fmt.Printf("💻 Starting interactive SSH session on '%s' (%s)...\n", e.Server.RegistryName, e.Server.Host)
 		if err := client.InteractiveSession(); err != nil {
 			fmt.Printf("SSH session error: %v\n", err)
 		}
 	} else {
 		// Non-interactive command
 		cmdStr := strings.Join(commandArgs, " ")
-		fmt.Printf("🚀 Executing on '%s': %s\n", cfg.Server.RegistryName, cmdStr)
+		fmt.Printf("🚀 Executing on '%s': %s\n", e.Server.RegistryName, cmdStr)
 		if err := client.RunCommand(cmdStr, os.Stdout, os.Stderr); err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}

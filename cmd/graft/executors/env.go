@@ -2,18 +2,15 @@ package executors
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
 	"github.com/skssmd/graft/internal/deploy"
 	"github.com/skssmd/graft/internal/git"
-	"github.com/skssmd/graft/internal/hostinit"
-	"github.com/skssmd/graft/internal/ssh"
+	"github.com/skssmd/graft/internal/project"
+	"github.com/skssmd/graft/internal/prompt"
 )
 
 func (e *Executor) RunNewEnv(name string) {
@@ -37,69 +34,11 @@ func (e *Executor) RunNewEnv(name string) {
 	fmt.Printf("🚀 Adding new environment '%s' to project '%s' (Mode: %s)\n", name, projName, deploymentMode)
 
 	// 2. Server Selection (Copy from RunInit)
-	gCfg, _ := config.LoadGlobalConfig()
-	var host, user, keyPath string
-	var port int
-	var registryName string
-
-	if gCfg != nil && len(gCfg.Servers) > 0 {
-		fmt.Println("\n📋 Available servers in registry:")
-		var keys []string
-		i := 1
-		for n, srv := range gCfg.Servers {
-			fmt.Printf("  [%d] %s (%s)\n", i, n, srv.Host)
-			keys = append(keys, n)
-			i++
-		}
-		fmt.Printf("\nSelect a server [1-%d] or type '/new' for a new connection: ", len(keys))
-
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-
-		if input == "/new" {
-			host, port, user, keyPath = promptNewServer(reader)
-			fmt.Print("Registry Name (e.g. staging-us): ")
-			registryName, _ = reader.ReadString('\n')
-			registryName = strings.TrimSpace(registryName)
-		} else {
-			idx, err := strconv.Atoi(input)
-			if err == nil && idx > 0 && idx <= len(keys) {
-				selected := gCfg.Servers[keys[idx-1]]
-				host = selected.Host
-				user = selected.User
-				port = selected.Port
-				keyPath = selected.KeyPath
-				registryName = selected.RegistryName
-				fmt.Printf("✅ Using server: %s\n", registryName)
-			} else {
-				fmt.Println("Invalid selection, entering new server details...")
-				host, port, user, keyPath = promptNewServer(reader)
-				fmt.Print("Registry Name (e.g. staging-us): ")
-				registryName, _ = reader.ReadString('\n')
-				registryName = strings.TrimSpace(registryName)
-			}
-		}
-	} else {
-		fmt.Println("No servers found in registry. Enter new server details:")
-		host, port, user, keyPath = promptNewServer(reader)
-		fmt.Print("Registry Name (e.g. staging-us): ")
-		registryName, _ = reader.ReadString('\n')
-		registryName = strings.TrimSpace(registryName)
-	}
-
-	// Update global registry
-	if gCfg != nil {
-		if gCfg.Servers == nil {
-			gCfg.Servers = make(map[string]config.ServerConfig)
-		}
-		srv := gCfg.Servers[registryName]
-		srv.RegistryName = registryName
-		srv.Host = host
-		srv.Port = port
-		srv.User = user
-		srv.KeyPath = keyPath
-		gCfg.Servers[registryName] = srv
-		config.SaveGlobalConfig(gCfg)
+	gCfg := e.GlobalConfig
+	srv, err := project.SelectOrAddServer(reader,gCfg, prompt.PromptNewServer)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
 	}
 
 	projFull := fmt.Sprintf("%s-%s", projName, name)
@@ -107,106 +46,39 @@ func (e *Executor) RunNewEnv(name string) {
 	var remoteProjects map[string]interface{}
 
 	// 3. Remote Conflict & Host Check
-	fmt.Printf("🔍 Checking for conflicts on remote server '%s'...\n", host)
-	client, err := ssh.NewClient(host, port, user, keyPath)
+	client,err:=e.getClient()
 	if err != nil {
-		fmt.Printf("⚠️  Warning: Could not connect to host to check for conflicts: %v\n", err)
-	} else {
-		defer client.Close()
-
-		// Host Initialization Check
-		if err := client.RunCommand("ls -d /opt/graft", nil, nil); err != nil {
-			fmt.Print("\n⚠️  Host is not initialized. Do you want to initialize the host? (y/n): ")
-			input, _ := reader.ReadString('\n')
-			input = strings.ToLower(strings.TrimSpace(input))
-			if input == "y" || input == "yes" {
-				fmt.Println("🚀 Starting host initialization...")
-				setupPostgres := false
-				setupRedis := false
-				fmt.Print("  Setup shared Postgres? (y/n): ")
-				input, _ = reader.ReadString('\n')
-				setupPostgres = strings.ToLower(strings.TrimSpace(input)) == "y"
-				fmt.Print("  Setup shared Redis? (y/n): ")
-				input, _ = reader.ReadString('\n')
-				setupRedis = strings.ToLower(strings.TrimSpace(input)) == "y"
-
-				pgUser := strings.ToLower("graft_admin_" + config.GenerateRandomString(4))
-				pgPass := config.GenerateRandomString(24)
-				pgDB := strings.ToLower("graft_master_" + config.GenerateRandomString(4))
-
-				if err := hostinit.InitHost(client, setupPostgres, setupRedis, false, false, pgUser, pgPass, pgDB, os.Stdout, os.Stderr); err != nil {
-					fmt.Printf("❌ Host initialization failed: %v\n", err)
-					return
-				}
-				fmt.Println("✅ Host initialized.")
-			}
-		}
-
-		// Ensure config dir exists
-		client.RunCommand("sudo mkdir -p /opt/graft/config && sudo chown $USER:$USER /opt/graft/config", os.Stdout, os.Stderr)
-
-		tmpFile := filepath.Join(os.TempDir(), "remote_projects.json")
-		remoteProjects = make(map[string]interface{})
-
-		if err := client.DownloadFile(config.RemoteProjectsPath, tmpFile); err == nil {
-			data, _ := os.ReadFile(tmpFile)
-			json.Unmarshal(data, &remoteProjects)
-			os.Remove(tmpFile)
-		}
-
-		if _, exists := remoteProjects[projFull]; exists {
-			fmt.Printf("❌ Conflict: Environment '%s' already exists on this server.\n", projFull)
-			return
-		}
-		
-		remoteProjects[projFull] = map[string]interface{}{
-			"path": fmt.Sprintf("/opt/graft/projects/%s", projFull),
-		}
+		fmt.Println("Error: Could not get client.")
+		return
 	}
+	defer client.Close()
+	remoteProjects, err = project.RemoteConflictCheck(reader, srv, projFull, false, client)
+	if err != nil {
+		return
+	}
+
 
 	// 4. Prompts
-	fmt.Print("Domain (e.g. staging.example.com): ")
-	domain, _ := reader.ReadString('\n')
-	domain = strings.TrimSpace(domain)
-
-	fmt.Println("\n🔄 Rollback configurations")
-	fmt.Print("Do you want to setup rollback configurations? (y/N): ")
-	input, _ := reader.ReadString('\n')
-	input = strings.ToLower(strings.TrimSpace(input))
-	if input == "y" || input == "yes" {
-		fmt.Print("Enter the number of versions to keep: ")
-		rollInput, _ := reader.ReadString('\n')
-		versionToKeep, _ = strconv.Atoi(strings.TrimSpace(rollInput))
-		if versionToKeep > 0 {
-			fmt.Printf("✅ Rollback configured to keep %d versions\n", versionToKeep)
-		}
-	}
+	domain := prompt.PromptDomain(reader, "")
+	versionToKeep = prompt.PromptRollback(reader)
 
 	var gitBranch string
 	if strings.HasPrefix(deploymentMode, "git") {
-		branch, err := e.promptGitBranch(reader)
+		branch, err := prompt.PromptGitBranch(reader)
 		if err == nil {
 			gitBranch = branch
 			fmt.Printf("✅ Selected branch: %s\n", gitBranch)
 		}
 	}
 
+
 	// 5. Update remote registry
-	if client != nil && remoteProjects != nil {
-		data, _ := json.MarshalIndent(remoteProjects, "", "  ")
-		tmpPath := filepath.Join(os.TempDir(), "upload_projects.json")
-		os.WriteFile(tmpPath, data, 0644)
-		client.UploadFile(tmpPath, config.RemoteProjectsPath)
-		os.Remove(tmpPath)
-		fmt.Println("✅ Remote project registry updated")
-	}
+	project.UpdateRemoteRegistry(client, remoteProjects)
 
 	// 6. Setup remote directory
 	remoteProjPath := fmt.Sprintf("/opt/graft/projects/%s", projFull)
-	if client != nil {
-		fmt.Printf("📂 Setting up remote project directory: %s\n", remoteProjPath)
-		client.RunCommand(fmt.Sprintf("sudo mkdir -p %s && sudo chown $USER:$USER %s", remoteProjPath, remoteProjPath), nil, nil)
-	}
+	project.SetupRemoteProjectDirectory(client, remoteProjPath, deploymentMode)
+
 
 	// 7. Save Project Metadata
 	meta := &config.ProjectMetadata{
@@ -216,12 +88,12 @@ func (e *Executor) RunNewEnv(name string) {
 		DeploymentMode:  deploymentMode,
 		GitBranch:       gitBranch,
 		RollbackBackups: versionToKeep,
-		Registry:        registryName,
+		Registry:        srv.RegistryName,
 		Initialized:     false,
 	}
 
 	// Fetch Hook URL if available
-	if srv, exists := gCfg.Servers[registryName]; exists {
+	if srv, exists := gCfg.Servers[srv.RegistryName]; exists {
 		meta.GraftHookURL = srv.GraftHookURL
 	}
 

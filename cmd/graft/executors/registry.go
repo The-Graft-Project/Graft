@@ -9,13 +9,14 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
+	"github.com/skssmd/graft/internal/prompt"
 	"github.com/skssmd/graft/internal/ssh"
 )
 
 func (e *Executor) RunRegistryAdd() {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("\n➕ Add New Server to Global Registry")
-	host, port, user, keyPath := promptNewServer(reader)
+	host, port, user, keyPath := prompt.PromptNewServer(reader)
 
 	fmt.Print("Registry Name (e.g. prod-us): ")
 	registryName, _ := reader.ReadString('\n')
@@ -26,7 +27,7 @@ func (e *Executor) RunRegistryAdd() {
 		return
 	}
 
-	gCfg, _ := config.LoadGlobalConfig()
+	gCfg := e.GlobalConfig
 	if gCfg == nil {
 		gCfg = &config.GlobalConfig{
 			Servers:  make(map[string]config.ServerConfig),
@@ -55,8 +56,8 @@ func (e *Executor) RunRegistryAdd() {
 }
 
 func (e *Executor) RunRegistryDel(name string) {
-	gCfg, err := config.LoadGlobalConfig()
-	if err != nil || gCfg == nil {
+	gCfg := e.GlobalConfig
+	if gCfg == nil {
 		fmt.Println("Error: Could not load global registry.")
 		return
 	}
@@ -86,7 +87,7 @@ func (e *Executor) RunRegistryDel(name string) {
 }
 
 func (e *Executor) RunRegistryShell(registryName string, commandArgs []string) {
-	gCfg, _ := config.LoadGlobalConfig()
+	gCfg := e.GlobalConfig
 	if gCfg == nil {
 		fmt.Println("Error: Could not load global registry.")
 		return
@@ -121,8 +122,8 @@ func (e *Executor) RunRegistryShell(registryName string, commandArgs []string) {
 }
 
 func (e *Executor) RunRegistryLs() {
-	gCfg, err := config.LoadGlobalConfig()
-	if err != nil || gCfg == nil || len(gCfg.Servers) == 0 {
+	gCfg := e.GlobalConfig
+	if gCfg == nil || len(gCfg.Servers) == 0 {
 		fmt.Println("No servers found in global registry.")
 		return
 	}
@@ -137,8 +138,8 @@ func (e *Executor) RunRegistryLs() {
 }
 
 func (e *Executor) RunProjectsLs(registryName string) {
-	gCfg, err := config.LoadGlobalConfig()
-	if err != nil || gCfg == nil {
+	gCfg := e.GlobalConfig
+	if gCfg == nil {
 		fmt.Println("Error loading global registry.")
 		return
 	}

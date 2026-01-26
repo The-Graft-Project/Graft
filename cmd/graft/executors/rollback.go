@@ -11,7 +11,7 @@ import (
 
 	"github.com/skssmd/graft/internal/config"
 	"github.com/skssmd/graft/internal/deploy"
-	"github.com/skssmd/graft/internal/ssh"
+	"github.com/skssmd/graft/internal/utils"
 )
 
 func (e *Executor) RunRollback() {
@@ -26,10 +26,8 @@ func (e *Executor) RunRollback() {
 		return
 	}
 
-	cfg := e
-
-	fmt.Printf("🔍 Connecting to %s (%s)...\n", cfg.Server.RegistryName, cfg.Server.Host)
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	fmt.Printf("🔍 Connecting to %s (%s)...\n", e.Server.RegistryName, e.Server.Host)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -49,7 +47,7 @@ func (e *Executor) RunRollback() {
 	var choices []string
 	for i, p := range backups {
 		timestamp := filepath.Base(p)
-		formatted := formatTimestamp(timestamp)
+		formatted := utils.FormatTimestamp(timestamp)
 		fmt.Printf("  [%d] %s\n", i+1, formatted)
 		choices = append(choices, timestamp)
 	}
@@ -90,8 +88,6 @@ func (e *Executor) RunRollbackConfig() {
 		return
 	}
 
-	cfg := e
-
 	fmt.Printf("🔄 Rollback Configuration for project: %s\n", meta.Name)
 	fmt.Printf("Current versions to keep: %d\n", meta.RollbackBackups)
 
@@ -120,8 +116,8 @@ func (e *Executor) RunRollbackConfig() {
 		return
 	}
 
-	fmt.Printf("🔍 Connecting to %s (%s) to update remote configuration...\n", cfg.Server.RegistryName, cfg.Server.Host)
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	fmt.Printf("🔍 Connecting to %s (%s) to update remote configuration...\n", e.Server.RegistryName, e.Server.Host)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -191,10 +187,8 @@ func (e *Executor) RunServiceRollback(serviceName string) {
 		return
 	}
 
-	cfg := e
-
-	fmt.Printf("🔍 Connecting to %s (%s)...\n", cfg.Server.RegistryName, cfg.Server.Host)
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	fmt.Printf("🔍 Connecting to %s (%s)...\n", e.Server.RegistryName, e.Server.Host)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -214,7 +208,7 @@ func (e *Executor) RunServiceRollback(serviceName string) {
 	var choices []string
 	for i, p := range backups {
 		timestamp := filepath.Base(p)
-		formatted := formatTimestamp(timestamp)
+		formatted := utils.FormatTimestamp(timestamp)
 		fmt.Printf("  [%d] %s\n", i+1, formatted)
 		choices = append(choices, timestamp)
 	}

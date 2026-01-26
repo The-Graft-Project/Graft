@@ -10,7 +10,6 @@ import (
 	"github.com/skssmd/graft/internal/config"
 	"github.com/skssmd/graft/internal/hostinit"
 	"github.com/skssmd/graft/internal/infra"
-	"github.com/skssmd/graft/internal/ssh"
 )
 
 func (e *Executor) RunInfraInit(typ, name string) {
@@ -20,9 +19,7 @@ func (e *Executor) RunInfraInit(typ, name string) {
 		return
 	}
 
-	cfg := e
-
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -67,13 +64,12 @@ func (e *Executor) RunInfra(args []string) {
 
 	// Handle backup subcommand
 	if typ == "db" && len(args) > 1 && args[1] == "backup" {
-		cfg := e
-		if cfg.Server.Host == "" {
+		if e.Server.Host == "" {
 			fmt.Println("Error: No server configuration found.")
 			return
 		}
 
-		client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+		client, err := e.getClient()
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			return
@@ -100,9 +96,7 @@ func (e *Executor) RunInfra(args []string) {
 		return
 	}
 
-	cfg := e
-
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -157,9 +151,7 @@ func (e *Executor) RunInfra(args []string) {
 }
 
 func (e *Executor) RunInfraReload() {
-	cfg := e
-
-	client, err := ssh.NewClient(cfg.Server.Host, cfg.Server.Port, cfg.Server.User, cfg.Server.KeyPath)
+	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return

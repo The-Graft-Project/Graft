@@ -78,7 +78,7 @@ func main() {
 		gCfg, _ := config.LoadGlobalConfig()
 		if gCfg != nil {
 			server := gCfg.Servers[projectmeta.Registry]
-			e.Server = server
+			e.Server = &server
 		}
 	}
 
@@ -128,7 +128,7 @@ func main() {
 
 		server := gCfg.Servers[servername]
 
-		e.Server = server
+		e.Server = &server
 		fmt.Println(e)
 	}
 	command := args[0]
