@@ -229,7 +229,7 @@ func (e *Executor) RunSync(args []string) {
 		}
 		defer client.Close()
 
-		if err := project.SyncInitializeGitProject(e.Env, client, p, meta, e.saveProjectMeta); err != nil {
+		if err := project.SyncInitializeGitProject(e.Env, client, p, meta); err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
 		return
