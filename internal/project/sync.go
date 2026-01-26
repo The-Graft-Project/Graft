@@ -48,7 +48,7 @@ func ParseSyncArgs(args []string) SyncArgs {
 }
 
 // SyncInitializeGitProject handles first-time git project initialization
-func SyncInitializeGitProject(env string, client *ssh.Client, p *deploy.Project, meta *config.ProjectMetadata, saveMetaFn func(*config.ProjectMetadata) error) error {
+func SyncInitializeGitProject(env string, client *ssh.Client, p *deploy.Project, meta *config.ProjectMetadata) error {
 	fmt.Println("\n📦 Git-based project detected. Setting up CI/CD workflows...")
 
 	remoteURL, err := git.GetRemoteURL(".", "origin")
@@ -70,7 +70,7 @@ func SyncInitializeGitProject(env string, client *ssh.Client, p *deploy.Project,
 
 	// Update initialized status
 	meta.Initialized = true
-	if err := saveMetaFn(meta); err != nil {
+	if err := config.SaveProjectMetadata(env, meta); err != nil {
 		return fmt.Errorf("failed to save project metadata: %w", err)
 	}
 
