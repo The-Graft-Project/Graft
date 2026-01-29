@@ -130,10 +130,13 @@ func PromptNewServer(reader *bufio.Reader) (string, int, string, string) {
 	keyPath, _ := reader.ReadString('\n')
 	keyPath = strings.TrimSpace(keyPath)
 	//if key path starts with ./ then dow pwd and marge to find absolute keypath
-	keyPath, err := filepath.Abs(keyPath)
-	if err != nil {
-		fmt.Println("Error getting absolute path:", err)
-		return host, port, user, keyPath
+	if strings.HasPrefix(keyPath, "./") {
+		absPath, err := filepath.Abs(keyPath)
+		if err != nil {
+			fmt.Println("Error getting absolute path:", err)
+			return host, port, user, keyPath
+		}
+		keyPath = absPath
 	}
 
 	return host, port, user, keyPath
