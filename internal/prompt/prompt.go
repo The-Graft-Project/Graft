@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -128,6 +129,12 @@ func PromptNewServer(reader *bufio.Reader) (string, int, string, string) {
 	fmt.Print("Key Path: ")
 	keyPath, _ := reader.ReadString('\n')
 	keyPath = strings.TrimSpace(keyPath)
+	//if key path starts with ./ then dow pwd and marge to find absolute keypath
+	keyPath, err := filepath.Abs(keyPath)
+	if err != nil {
+		fmt.Println("Error getting absolute path:", err)
+		return host, port, user, keyPath
+	}
 
 	return host, port, user, keyPath
 }

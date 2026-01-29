@@ -39,7 +39,7 @@ func CheckLocalDirectory(reader *bufio.Reader) error {
 }
 
 // SelectOrAddServer prompts the user to select an existing server or add a new one
-func SelectOrAddServer(reader *bufio.Reader, gCfg *config.GlobalConfig, promptNewServerFunc func(*bufio.Reader) (string, int, string, string)) (*config.ServerConfig, error) {
+func SelectOrAddServer(reader *bufio.Reader, gCfg *config.GlobalConfig ) (*config.ServerConfig, error) {
 	var host string
 	var port int
 	var user string
@@ -62,7 +62,7 @@ func SelectOrAddServer(reader *bufio.Reader, gCfg *config.GlobalConfig, promptNe
 		input = strings.TrimSpace(input)
 
 		if input == "/new" {
-			host, port, user, keyPath = promptNewServerFunc(reader)
+			host, port, user, keyPath = prompt.PromptNewServer(reader)
 			fmt.Print("Registry Name (e.g. prod-us): ")
 			registryName, _ = reader.ReadString('\n')
 			registryName = strings.TrimSpace(registryName)
@@ -78,7 +78,7 @@ func SelectOrAddServer(reader *bufio.Reader, gCfg *config.GlobalConfig, promptNe
 				fmt.Printf("✅ Using server: %s\n", registryName)
 			} else {
 				fmt.Println("Invalid selection, entering new server details...")
-				host, port, user, keyPath = promptNewServerFunc(reader)
+				host, port, user, keyPath = prompt.PromptNewServer(reader)
 				fmt.Print("Registry Name (e.g. prod-us): ")
 				registryName, _ = reader.ReadString('\n')
 				registryName = strings.TrimSpace(registryName)
@@ -86,7 +86,7 @@ func SelectOrAddServer(reader *bufio.Reader, gCfg *config.GlobalConfig, promptNe
 		}
 	} else {
 		fmt.Println("No servers found in registry. Enter new server details:")
-		host, port, user, keyPath = promptNewServerFunc(reader)
+		host, port, user, keyPath = prompt.PromptNewServer(reader)
 		fmt.Print("Registry Name (e.g. prod-us): ")
 		registryName, _ = reader.ReadString('\n')
 		registryName = strings.TrimSpace(registryName)
@@ -273,7 +273,7 @@ func InitProjectWorkflow(reader *bufio.Reader, force bool, gCfg *config.GlobalCo
 	}
 
 	// Server Selection
-	srv, err = SelectOrAddServer(reader, gCfg, prompt.PromptNewServer)
+	srv, err = SelectOrAddServer(reader, gCfg)
 	if err != nil {
 		return "", nil, fmt.Errorf("server selection failed: %w", err)
 	}

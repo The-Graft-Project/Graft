@@ -283,3 +283,26 @@ func (e *Executor) RunHostShell(commandArgs []string) {
 		}
 	}
 }
+
+func (e *Executor) RunHostDocker(commandArgs []string) {
+	
+
+	client, err := e.getClient()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	if len(commandArgs) == 0 {
+		// Interactive SSH
+		fmt.Println("Usage: graft host [init|clean|sh|self-destruct|any docker command]")
+	} else {
+		// Non-interactive command
+		cmdStr := "sudo docker " + strings.Join(commandArgs, " ")
+		fmt.Printf("🚀 Executing on '%s': %s\n", e.Server.RegistryName, cmdStr)
+		if err := client.RunCommand(cmdStr, os.Stdout, os.Stderr); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		}
+	}
+}

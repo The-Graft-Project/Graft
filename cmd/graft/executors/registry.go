@@ -121,6 +121,38 @@ func (e *Executor) RunRegistryShell(registryName string, commandArgs []string) {
 	}
 }
 
+func (e *Executor) RunRegistryDocker(registry string, args []string){
+	gCfg := e.GlobalConfig
+	if gCfg == nil {
+		fmt.Println("Error: Could not load global registry.")
+		return
+	}
+	srv, exists := gCfg.Servers[registry]
+	if !exists {
+		fmt.Printf("Error: Registry '%s' not found.\n", registry)
+		return
+	}
+
+	client, err := ssh.NewClient(srv.Host, srv.Port, srv.User, srv.KeyPath)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	if len(args) == 0 {
+		fmt.Printf("Usage: graft -r <registry name> <any docker command>\n")
+		fmt.Printf("Example: graft -r prod-us ps\n")
+		return
+	} else {
+		cmdStr := "sudo docker " + strings.Join(args, " ")
+		fmt.Printf("🚀 Executing on '%s': %s\n", registry, cmdStr)
+		if err := client.RunCommand(cmdStr, os.Stdout, os.Stderr); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		}
+	}
+}
+
 func (e *Executor) RunRegistryLs() {
 	gCfg := e.GlobalConfig
 	if gCfg == nil || len(gCfg.Servers) == 0 {

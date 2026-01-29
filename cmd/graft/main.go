@@ -45,6 +45,12 @@ func main() {
 			e.RunRegistryShell(registryContext, args[1:])
 			return
 		}
+		// Handle shell directly after -r: graft -r name -sh ...
+		if len(args) > 0 {
+			
+			e.RunRegistryDocker(registryContext, args)
+			return
+		}
 	}
 
 	// Handle project context flag: graft -p projectname ...
@@ -159,7 +165,7 @@ e.RunHook(args[1:])
 		case "self-destruct":
 			e.RunHostSelfDestruct()
 		default:
-			fmt.Println("Usage: graft host [init|clean|sh|self-destruct]")
+			e.RunHostDocker(args[1:])
 		}
 	case "db":
 		if len(args) < 3 || args[2] != "init" {

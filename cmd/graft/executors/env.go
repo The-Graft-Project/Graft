@@ -35,7 +35,7 @@ func (e *Executor) RunNewEnv(name string) {
 
 	// 2. Server Selection (Copy from RunInit)
 	gCfg := e.GlobalConfig
-	srv, err := project.SelectOrAddServer(reader,gCfg, prompt.PromptNewServer)
+	srv, err := project.SelectOrAddServer(reader,gCfg)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
