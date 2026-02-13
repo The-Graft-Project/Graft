@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/git"
-	"github.com/skssmd/graft/internal/ssh"
+	"github.com/skssmd/graft/internal/server/git"
+	"github.com/skssmd/graft/internal/server/ssh"
 	"gopkg.in/yaml.v3"
 )
 

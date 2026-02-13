@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/ssh"
+	"github.com/skssmd/graft/internal/server/ssh"
 )
 
 type Executor struct {

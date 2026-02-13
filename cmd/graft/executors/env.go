@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/deploy"
-	"github.com/skssmd/graft/internal/git"
-	"github.com/skssmd/graft/internal/project"
-	"github.com/skssmd/graft/internal/prompt"
+	"github.com/skssmd/graft/internal/server/deploy"
+	"github.com/skssmd/graft/internal/server/git"
+	"github.com/skssmd/graft/internal/server/project"
+	"github.com/skssmd/graft/internal/server/prompt"
 )
 
 func (e *Executor) RunNewEnv(name string) {

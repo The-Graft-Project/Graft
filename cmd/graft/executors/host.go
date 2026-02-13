@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/hostinit"
+	"github.com/skssmd/graft/internal/server/hostinit"
 )
 
 func (e *Executor) RunHostInit() {

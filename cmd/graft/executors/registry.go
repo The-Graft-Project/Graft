@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/prompt"
-	"github.com/skssmd/graft/internal/ssh"
+	"github.com/skssmd/graft/internal/server/prompt"
+	"github.com/skssmd/graft/internal/server/ssh"
 )
 
 func (e *Executor) RunRegistryAdd() {

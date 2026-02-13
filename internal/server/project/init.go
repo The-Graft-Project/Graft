@@ -12,11 +12,11 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/deploy"
-	"github.com/skssmd/graft/internal/hostinit"
-	"github.com/skssmd/graft/internal/prompt"
-	"github.com/skssmd/graft/internal/ssh"
-	"github.com/skssmd/graft/internal/webhook"
+	"github.com/skssmd/graft/internal/server/deploy"
+	"github.com/skssmd/graft/internal/server/hostinit"
+	"github.com/skssmd/graft/internal/server/prompt"
+	"github.com/skssmd/graft/internal/server/ssh"
+	"github.com/skssmd/graft/internal/server/webhook"
 )
 
 // CheckLocalDirectory checks if the current directory is already initialized with Graft

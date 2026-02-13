@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/ssh"
+	"github.com/skssmd/graft/internal/server/ssh"
 )
 
 // InstallHook installs or restarts the graft-hook webhook service

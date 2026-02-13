@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/deploy"
+	"github.com/skssmd/graft/internal/server/deploy"
 	"github.com/skssmd/graft/internal/utils"
 )
 

@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/deploy"
-	"github.com/skssmd/graft/internal/project"
-	"github.com/skssmd/graft/internal/prompt"
-	"github.com/skssmd/graft/internal/ssh"
+	"github.com/skssmd/graft/internal/server/deploy"
+	"github.com/skssmd/graft/internal/server/project"
+	"github.com/skssmd/graft/internal/server/prompt"
+	"github.com/skssmd/graft/internal/server/ssh"
 )
 
 func (e *Executor) RunMode() {

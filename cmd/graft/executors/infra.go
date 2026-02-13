@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
-	"github.com/skssmd/graft/internal/hostinit"
-	"github.com/skssmd/graft/internal/infra"
+	"github.com/skssmd/graft/internal/server/hostinit"
+	"github.com/skssmd/graft/internal/server/infra"
 )
 
 func (e *Executor) RunInfraInit(typ, name string) {
