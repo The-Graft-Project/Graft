@@ -119,20 +119,34 @@ func (e *Executor) RunInit(args []string) {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Parse flags
-	var force bool
+	var force,cloud bool
 	for _, arg := range args {
 		if arg == "-f" || arg == "--force" {
 			force = true
 		}
+		if arg =="--cloud"{
+			cloud = true
+		}
 	}
+	
 
 	// Step 1: Project Setup
-	projName, srv, err := project.InitProjectWorkflow(reader, force, e.GlobalConfig)
+	projName, err := project.InitProjectWorkflow(reader, force, e.GlobalConfig)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-
+	var srv *config.ServerConfig
+	if !cloud{
+		srv, err = project.SelectOrAddServer(reader, e.GlobalConfig)
+		if err != nil {
+			fmt.Println("Failed to Select serevr:",err)
+			return
+		}
+	}else {
+		//cloud mode setup
+		fmt.Println("Cloud mode selected")
+	}
 	// Get current hook URL from registry
 	var currentHookURL string
 	if e.GlobalConfig != nil {

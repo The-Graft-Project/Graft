@@ -266,26 +266,22 @@ func SetupRemoteProjectDirectory(client *ssh.Client, remoteProjPath string, depl
 	}
 }
 // InitProjectWorkflow handles the initial sequence of project setup steps
-func InitProjectWorkflow(reader *bufio.Reader, force bool, gCfg *config.GlobalConfig) (projName string, srv *config.ServerConfig, err error) {
+func InitProjectWorkflow(reader *bufio.Reader, force bool, gCfg *config.GlobalConfig) (projName string, err error) {
 	// Directory Check
 	if err = CheckLocalDirectory(reader); err != nil {
-		return "", nil, fmt.Errorf("directory check failed: %w", err)
+		return "", fmt.Errorf("directory check failed: %w", err)
 	}
 
-	// Server Selection
-	srv, err = SelectOrAddServer(reader, gCfg)
-	if err != nil {
-		return "", nil, fmt.Errorf("server selection failed: %w", err)
-	}
+	
 
 	projName = DefineProjectName(reader)
 
 	// Local Conflict Check
 	if !LocalConfigCheck(reader, gCfg, projName, force) {
-		return "", nil, fmt.Errorf("local conflict check failed")
+		return "", fmt.Errorf("local conflict check failed")
 	}
 
-	return projName, srv, nil
+	return projName, nil
 }
 
 // InitRemoteWorkflow handles checking remote conflicts and gathering configuration
