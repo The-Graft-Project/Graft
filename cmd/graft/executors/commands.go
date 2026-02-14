@@ -160,8 +160,8 @@ func (e *Executor) RunInit(args []string) {
 	if !strings.HasSuffix(projFull, "-"+e.Env) {
 		projFull = fmt.Sprintf("%s-%s", projFull, e.Env)
 	}
-
-	// Step 2: Remote Setup
+	
+	if !cloud{// Step 2: Remote Setup
 	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -193,13 +193,14 @@ func (e *Executor) RunInit(args []string) {
 	if err := project.InitGitRemoteWorkflow(client, remoteProjPath, deploymentMode); err != nil {
 		fmt.Printf("Warning: Git remote setup failed: %v\n", err)
 	}
-
 	// Step 7: Save Metadata
 	meta := project.InitSaveMetadata(projName, domain, deploymentMode, gitBranch, currentHookURL, remoteProjPath, versionToKeep, srv)
 	e.ProjectMeta = meta
 	if err := e.saveProjectMeta(meta); err != nil {
 		fmt.Printf("Warning: Could not save project metadata: %v\n", err)
 	}
+}
+	
 
 	fmt.Printf("\n✨ Project '%s' initialized!\n", projName)
 	fmt.Printf("Local config: .graft/config.json\n")
