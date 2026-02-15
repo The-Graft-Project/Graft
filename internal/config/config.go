@@ -189,17 +189,42 @@ func LoadSecrets() (map[string]string, error) {
 	return secrets, scanner.Err()
 }
 
+// CloudProvider represents supported cloud platforms
+type CloudProvider string
+
+const (
+	CloudProviderFlyIO   CloudProvider = "flyio"
+	CloudProviderVercel  CloudProvider = "vercel"
+	CloudProviderRailway CloudProvider = "railway"
+)
+
+// CloudConfig stores cloud-specific configuration
+type CloudConfig struct {
+	Provider CloudProvider `json:"provider"`
+	AppName  string        `json:"app_name"`
+	Region   string        `json:"region,omitempty"`
+	OrgID    string        `json:"org_id,omitempty"`
+}
+
 // ProjectMetadata stores local project information
 type ProjectMetadata struct {
 	Name            string `json:"name"`
-	RemotePath      string `json:"remote_path"`
+	Mode            string `json:"mode,omitempty"` // "server" or "cloud"
+	
+	// Server mode fields (only used when Mode == "server" or empty for backward compatibility)
+	RemotePath      string `json:"remote_path,omitempty"`
+	Registry        string `json:"env,omitempty"`
+	GraftHookURL    string `json:"graft_hook_url,omitempty"`
+	
+	// Cloud mode fields (only used when Mode == "cloud")
+	Cloud           *CloudConfig `json:"cloud,omitempty"`
+	
+	// Common fields
 	Domain          string `json:"domain,omitempty"`
 	Initialized     bool   `json:"initialized"`
-	DeploymentMode  string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild"
+	DeploymentMode  string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild", "cloud-flyio", "cloud-vercel"
 	GitBranch       string `json:"git_branch,omitempty"`
-	GraftHookURL    string `json:"graft_hook_url,omitempty"`
 	RollbackBackups int    `json:"rollback_backups,omitempty"`
-	Registry        string `json:"env,omitempty"`
 }
 type ProjectEnv struct {
 	Name            string `json:"name"`

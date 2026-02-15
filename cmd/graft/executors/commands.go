@@ -119,93 +119,106 @@ func (e *Executor) RunInit(args []string) {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Parse flags
-	var force,cloud bool
+	var force, cloud bool
 	for _, arg := range args {
 		if arg == "-f" || arg == "--force" {
 			force = true
 		}
-		if arg =="--cloud"{
+		if arg == "--cloud" {
 			cloud = true
 		}
 	}
-	
 
-	// Step 1: Project Setup
+	// Step 1: Project Setup (common for both modes)
 	projName, err := project.InitProjectWorkflow(reader, force, e.GlobalConfig)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	var srv *config.ServerConfig
-	if !cloud{
-		srv, err = project.SelectOrAddServer(reader, e.GlobalConfig)
+
+	var meta *config.ProjectMetadata
+
+	if cloud {
+		// Cloud mode initialization
+		meta, err = project.InitCloudWorkflow(projName, e.Env)
 		if err != nil {
-			fmt.Println("Failed to Select serevr:",err)
+			fmt.Printf("Error: %v\n", err)
 			return
 		}
-	}else {
-		//cloud mode setup
-		fmt.Println("Cloud mode selected")
-	}
-	// Get current hook URL from registry
-	var currentHookURL string
-	if e.GlobalConfig != nil {
-		if srvCfg, exists := e.GlobalConfig.Servers[srv.RegistryName]; exists {
-			currentHookURL = srvCfg.GraftHookURL
+	} else {
+		// Server mode initialization (existing logic)
+		srv, err := project.SelectOrAddServer(reader, e.GlobalConfig)
+		if err != nil {
+			fmt.Println("Failed to select server:", err)
+			return
+		}
+
+		// Get current hook URL from registry
+		var currentHookURL string
+		if e.GlobalConfig != nil {
+			if srvCfg, exists := e.GlobalConfig.Servers[srv.RegistryName]; exists {
+				currentHookURL = srvCfg.GraftHookURL
+			}
+		}
+
+		// Prepare full project name
+		projFull := projName
+		if !strings.HasSuffix(projFull, "-"+e.Env) {
+			projFull = fmt.Sprintf("%s-%s", projFull, e.Env)
+		}
+
+		// Step 2: Remote Setup
+		client, err := e.getClient()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		defer client.Close()
+
+		remoteProjects, domain, versionToKeep, err := project.InitRemoteWorkflow(reader, client, srv, projFull, force)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		// Step 3: Update Remote Registry
+		project.UpdateRemoteRegistry(client, remoteProjects)
+
+		// Step 4: Deployment Setup
+		deploymentMode, gitBranch, err := project.InitDeploymentWorkflow(reader, client, e.GlobalConfig, srv, currentHookURL)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		// Step 5: Remote Project Directory Setup
+		remoteProjPath := fmt.Sprintf("/opt/graft/projects/%s", projFull)
+		project.SetupRemoteProjectDirectory(client, remoteProjPath, deploymentMode)
+
+		// Step 6: Git Remote Setup
+		if err := project.InitGitRemoteWorkflow(client, remoteProjPath, deploymentMode); err != nil {
+			fmt.Printf("Warning: Git remote setup failed: %v\n", err)
+		}
+
+		// Step 7: Save Metadata
+		meta = project.InitSaveMetadata(projName, domain, deploymentMode, gitBranch, currentHookURL, remoteProjPath, versionToKeep, srv)
+		// Set mode to "server" for backward compatibility
+		if meta.Mode == "" {
+			meta.Mode = "server"
 		}
 	}
 
-	// Prepare full project name
-	projFull := projName
-	if !strings.HasSuffix(projFull, "-"+e.Env) {
-		projFull = fmt.Sprintf("%s-%s", projFull, e.Env)
-	}
-	
-	if !cloud{// Step 2: Remote Setup
-	client, err := e.getClient()
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
-	defer client.Close()
-
-	remoteProjects, domain, versionToKeep, err := project.InitRemoteWorkflow(reader, client, srv, projFull, force)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
-
-	// Step 3: Update Remote Registry
-	project.UpdateRemoteRegistry(client, remoteProjects)
-
-	// Step 4: Deployment Setup
-	deploymentMode, gitBranch, err := project.InitDeploymentWorkflow(reader, client, e.GlobalConfig, srv, currentHookURL)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
-
-	// Step 5: Remote Project Directory Setup
-	remoteProjPath := fmt.Sprintf("/opt/graft/projects/%s", projFull)
-	project.SetupRemoteProjectDirectory(client, remoteProjPath, deploymentMode)
-
-	// Step 6: Git Remote Setup
-	if err := project.InitGitRemoteWorkflow(client, remoteProjPath, deploymentMode); err != nil {
-		fmt.Printf("Warning: Git remote setup failed: %v\n", err)
-	}
-	// Step 7: Save Metadata
-	meta := project.InitSaveMetadata(projName, domain, deploymentMode, gitBranch, currentHookURL, remoteProjPath, versionToKeep, srv)
+	// Save metadata
 	e.ProjectMeta = meta
 	if err := e.saveProjectMeta(meta); err != nil {
 		fmt.Printf("Warning: Could not save project metadata: %v\n", err)
 	}
-}
-	
 
 	fmt.Printf("\n✨ Project '%s' initialized!\n", projName)
-	fmt.Printf("Local config: .graft/config.json\n")
+	fmt.Printf("Local config: .graft/project.json\n")
 	fmt.Printf("Boilerplate: graft-compose.yml\n")
 }
+
 
 
 func (e *Executor) RunSync(args []string) {

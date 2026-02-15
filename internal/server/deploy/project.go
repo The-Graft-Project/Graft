@@ -68,10 +68,57 @@ func GenerateBoilerplate(name, domain, deploymentMode string) *Project {
 	return p
 }
 
+// GenerateCloudBoilerplate creates a cloud-specific graft-compose.yml
+func GenerateCloudBoilerplate(name, domain, deploymentMode string) *Project {
+	p := &Project{
+		Name:           name,
+		Domain:         domain,
+		DeploymentMode: deploymentMode,
+		Services: map[string]Service{
+			"frontend": {
+				Name:  "frontend",
+				Image: "nginx:alpine",
+			},
+			"backend": {
+				Name:  "backend",
+				Image: "golang:alpine",
+			},
+		},
+	}
+	return p
+}
+
+
+
+
 func (p *Project) Save(dir string) error {
 	filename := "graft-compose.yml"
 	path := filepath.Join(dir, filename)
 
+	var content string
+	
+	// Check if this is cloud mode
+	if strings.HasPrefix(p.DeploymentMode, "cloud-") {
+		content = p.generateCloudCompose()
+	} else {
+		content = p.generateServerCompose()
+	}
+	
+	// Create env directory if it doesn't exist
+	envDir := filepath.Join(dir, "env")
+	if err := os.MkdirAll(envDir, 0755); err != nil {
+		fmt.Printf("Warning: Could not create env directory: %v\n", err)
+	}
+
+	// Update .gitignore
+	if err := EnsureGitignore(dir); err != nil {
+		fmt.Printf("Warning: %v\n", err)
+	}
+
+	return os.WriteFile(path, []byte(content), 0644)
+}
+
+func (p *Project) generateServerCompose() string {
 	// Determine the graft mode label based on deployment mode
 	var graftMode string
 	switch p.DeploymentMode {
@@ -88,6 +135,7 @@ func (p *Project) Save(dir string) error {
 	default:
 		graftMode = "serverbuild" // Default to serverbuild for backward compatibility
 	}
+
 
 	// Generate a valid docker-compose.yml file that can be used directly
 	template := `# Docker Compose Configuration for: %s
@@ -306,18 +354,114 @@ networks:
 		graftMode,                                                                                          // Backend graft.mode
 		p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, p.Name, // Backend: name-router, name-priority, name-middleware, name-router-middleware, name-middleware-strip, name-router-service, name-service, name-service-port, name-router-entrypoints, name-router-tls
 	)
-	// Create env directory if it doesn't exist
-	envDir := filepath.Join(dir, "env")
-	if err := os.MkdirAll(envDir, 0755); err != nil {
-		fmt.Printf("Warning: Could not create env directory: %v\n", err)
-	}
+	
+	return content
+}
 
-	// Update .gitignore
-	if err := EnsureGitignore(dir); err != nil {
-		fmt.Printf("Warning: %v\n", err)
-	}
+func (p *Project) generateCloudCompose() string {
+	template := `# Graft Cloud Compose Configuration
+# Project: %s
+# Deployment Mode: cloud
+# 
+# This file serves as the source of truth for your cloud deployment.
+# Each service can be deployed to different platforms using 'deploy_on' labels.
 
-	return os.WriteFile(path, []byte(content), 0644)
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    
+    labels:
+      - "graft.mode=cloud"
+      
+      # Specify deployment platform per service
+      # Options: flyio, vercel, railway
+      - "graft.deploy_on=flyio"
+      
+      # Optional: Custom domain for this service
+      # If not specified, platform will provide a subdomain
+      # - "graft.domain=myapp.com"
+      
+      # Service configuration
+      - "graft.cloud.service=frontend"
+      - "graft.cloud.type=web"
+      - "graft.cloud.port=3000"
+      
+      # Optional: Region (platform-specific)
+      # Fly.io: iad, lax, fra, syd, sin, etc.
+      # Vercel: iad1, sfo1, fra1, hnd1, etc.
+      # - "graft.cloud.region=iad"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    
+    environment:
+      - PORT=5000
+      - GIN_MODE=release
+    
+    labels:
+      - "graft.mode=cloud"
+      
+      # Can deploy to different platform than frontend
+      - "graft.deploy_on=flyio"
+      
+      # Optional: Custom domain
+      # - "graft.domain=api.myapp.com"
+      
+      # Service configuration
+      - "graft.cloud.service=backend"
+      - "graft.cloud.type=web"
+      - "graft.cloud.port=5000"
+      - "graft.cloud.path=/api"
+      
+      # Optional: Region
+      # - "graft.cloud.region=iad"
+
+# ============================================================================
+# CLOUD DEPLOYMENT GUIDE
+# ============================================================================
+#
+# Platform Selection (per service):
+#   Set 'graft.deploy_on' label to choose platform:
+#   - flyio: Full-stack apps, Docker-based, global deployment
+#   - vercel: Frontend + Serverless, optimized for Next.js/React
+#   - railway: Full-stack, Docker-based, simple deployment
+#
+# Domain Configuration:
+#   Option 1: Use platform subdomain (default)
+#     - Don't set graft.domain label
+#     - Fly.io provides: <app-name>.fly.dev
+#     - Vercel provides: <app-name>.vercel.app
+#
+#   Option 2: Custom domain
+#     - Add label: "graft.domain=myapp.com"
+#     - Configure DNS after deployment
+#
+# Region Selection (optional):
+#   Add label: "graft.cloud.region=<region-code>"
+#   Fly.io regions: iad, lax, fra, syd, sin, etc.
+#   Vercel regions: iad1, sfo1, fra1, hnd1, etc.
+#
+# Mixed Deployments:
+#   You can deploy different services to different platforms:
+#   - Frontend to Vercel (optimized for static/SSR)
+#   - Backend to Fly.io (full Docker support)
+#
+# Deployment:
+#   Run: graft sync
+#   Graft will read deploy_on labels and deploy each service accordingly
+`
+
+	return fmt.Sprintf(template, p.Name)
 }
 
 // EnsureGitignore ensures that sensitive Graft files are added to .gitignore
