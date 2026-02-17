@@ -374,10 +374,16 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     
+
+
     environment:
       - NODE_ENV=production
       - PORT=3000
     
+
+	deploy:
+		provider:vercel/flyio
+			 
     labels:
       - "graft.mode=cloud"
       
