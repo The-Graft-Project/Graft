@@ -152,6 +152,7 @@ func (e *Executor) RunInit(args []string) {
 			fmt.Println("Failed to select server:", err)
 			return
 		}
+		e.Server = srv
 
 		// Get current hook URL from registry
 		var currentHookURL string

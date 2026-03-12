@@ -92,17 +92,17 @@ func SelectOrAddServer(reader *bufio.Reader, gCfg *config.GlobalConfig ) (*confi
 		registryName = strings.TrimSpace(registryName)
 	}
 
-	// Update global registry with the selected/new server immediately
+	// Update and return the selected/new server
+	srv.RegistryName = registryName
+	srv.Host = host
+	srv.Port = port
+	srv.User = user
+	srv.KeyPath = keyPath
+
 	if gCfg != nil {
 		if gCfg.Servers == nil {
 			gCfg.Servers = make(map[string]config.ServerConfig)
 		}
-		srv := gCfg.Servers[registryName]
-		srv.RegistryName = registryName
-		srv.Host = host
-		srv.Port = port
-		srv.User = user
-		srv.KeyPath = keyPath
 		gCfg.Servers[registryName] = srv
 		config.SaveGlobalConfig(gCfg)
 	}

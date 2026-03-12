@@ -48,6 +48,9 @@ func(e *Executor) getClient() (*ssh.Client, error) {
 	if e.Client != nil {
 		return e.Client, nil
 	}
+	if e.Server == nil {
+		return nil, fmt.Errorf("server configuration is missing. please ensure the project is initialized or a server is selected")
+	}
 	client, err := ssh.NewClient(e.Server.Host, e.Server.Port, e.Server.User, e.Server.KeyPath)
 	if err != nil {
 		return nil, err
