@@ -48,7 +48,7 @@ func ParseSyncArgs(args []string) SyncArgs {
 }
 
 // SyncInitializeGitProject handles first-time git project initialization
-func SyncInitializeGitProject(env string, client *ssh.Client, p *deploy.Project, meta *config.ProjectMetadata) error {
+func SyncInitializeGitProject(env string, client *ssh.Client, p *deploy.Project, meta *config.ProjectMetadata, hookurl string) error {
 	fmt.Println("\n📦 Git-based project detected. Setting up CI/CD workflows...")
 
 	remoteURL, err := git.GetRemoteURL(".", "origin")
@@ -57,15 +57,7 @@ func SyncInitializeGitProject(env string, client *ssh.Client, p *deploy.Project,
 	}
 
 	// Try to get hook URL from global config if missing in meta
-	hookURL := meta.GraftHookURL
-	if hookURL == "" {
-		gCfg, _ := config.LoadGlobalConfig()
-		if gCfg != nil && meta.Registry != "" {
-			if srv, exists := gCfg.Servers[meta.Registry]; exists {
-				hookURL = srv.GraftHookURL
-			}
-		}
-	}
+	hookURL := hookurl
 
 	// Generate Workflows
 	if err := deploy.GenerateWorkflows(p, env, remoteURL, meta.DeploymentMode, hookURL); err != nil {
