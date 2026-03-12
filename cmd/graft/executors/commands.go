@@ -186,7 +186,7 @@ func (e *Executor) RunInit(args []string) {
 		project.UpdateRemoteRegistry(client, remoteProjects)
 
 		// Step 4: Deployment Setup
-		deploymentMode, gitBranch, err := project.InitDeploymentWorkflow(reader, client, e.GlobalConfig, srv, currentHookURL)
+		deploymentMode, gitBranch, updatedHookURL, err := project.InitDeploymentWorkflow(reader, client, e.GlobalConfig, srv, currentHookURL)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			return
@@ -202,7 +202,7 @@ func (e *Executor) RunInit(args []string) {
 		}
 
 		// Step 7: Save Metadata
-		meta = project.InitSaveMetadata(projName, domain, deploymentMode, gitBranch, currentHookURL, remoteProjPath, versionToKeep, srv)
+		meta = project.InitSaveMetadata(projName, domain, deploymentMode, gitBranch, updatedHookURL, remoteProjPath, versionToKeep, srv)
 		// Set mode to "server" for backward compatibility
 		if meta.Mode == "" {
 			meta.Mode = "server"

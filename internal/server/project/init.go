@@ -306,18 +306,20 @@ func InitRemoteWorkflow(reader *bufio.Reader, client *ssh.Client, srv *config.Se
 }
 
 // InitDeploymentWorkflow handles deployment mode selection and optional hook installation
-func InitDeploymentWorkflow(reader *bufio.Reader, client *ssh.Client, gCfg *config.GlobalConfig, srv *config.ServerConfig, currentHookURL string) (deploymentMode, gitBranch string, err error) {
+func InitDeploymentWorkflow(reader *bufio.Reader, client *ssh.Client, gCfg *config.GlobalConfig, srv *config.ServerConfig, currentHookURL string) (deploymentMode, gitBranch, hookURL string, err error) {
 	deploymentMode, gitBranch = prompt.SetupDeploymentMode(reader)
 
 	// Graft-Hook detection and deployment for automated modes
 	if deploymentMode == "git-images" || deploymentMode == "git-repo-serverbuild" || deploymentMode == "git-manual" {
-		err = webhook.InstallHook(client, gCfg, deploymentMode, reader, currentHookURL, srv)
+		hookURL, err = webhook.InstallHook(client, gCfg, deploymentMode, reader, currentHookURL, srv)
 		if err != nil {
-			return "", "", fmt.Errorf("could not install hook: %w", err)
+			return "", "", "", fmt.Errorf("could not install hook: %w", err)
 		}
+	} else {
+		hookURL = currentHookURL
 	}
 
-	return deploymentMode, gitBranch, nil
+	return deploymentMode, gitBranch, hookURL, nil
 }
 
 // InitGitRemoteWorkflow ensures the remote project directory has git initialized if needed

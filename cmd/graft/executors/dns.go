@@ -303,14 +303,19 @@ func (e *Executor) RunHookMap() {
 	// Load metadata to get environment-specific domain
 	meta, _ := config.LoadProjectMetadata(e.Env)
 	domain := ""
-	if meta != nil {
+	if meta != nil && meta.GraftHookURL != "" {
 		domain = meta.GraftHookURL
+	} else if e.Server != nil && e.Server.GraftHookURL != "" {
+		domain = e.Server.GraftHookURL
+		fmt.Printf("📍 Using graft-hook URL from server registry: %s\n", domain)
 	}
+
 	domain = strings.TrimPrefix(domain, "https://")
 	domain = strings.TrimPrefix(domain, "http://")
 	
 	if domain == "" {
-		fmt.Println("❌ No domain found in project metadata")
+		fmt.Println("❌ No graft-hook URL found in project metadata or server registry.")
+		fmt.Println("💡 Run 'graft init' or 'graft hook' to set up graft-hook first.")
 		return
 	}
 

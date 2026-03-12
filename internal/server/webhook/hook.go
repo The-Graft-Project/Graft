@@ -13,9 +13,9 @@ import (
 )
 
 // InstallHook installs or restarts the graft-hook webhook service
-func InstallHook(client *ssh.Client, gCfg *config.GlobalConfig, deploymentMode string, reader *bufio.Reader, currentHookURL string, srv *config.ServerConfig) error {
+func InstallHook(client *ssh.Client, gCfg *config.GlobalConfig, deploymentMode string, reader *bufio.Reader, currentHookURL string, srv *config.ServerConfig) (string, error) {
 	if client == nil {
-		return errors.New("client is nil")
+		return "", errors.New("client is nil")
 	}
 	
 	installHook := false
@@ -35,9 +35,9 @@ func InstallHook(client *ssh.Client, gCfg *config.GlobalConfig, deploymentMode s
 			} else {
 				fmt.Println("\n✅ graft-hook restarted successfully.")
 				// Fetch existing hook URL from global registry if available
-				if srv, exists := gCfg.Servers[srv.RegistryName]; exists {
-					if srv.GraftHookURL != "" {
-						currentHookURL = srv.GraftHookURL
+				if regSrv, exists := gCfg.Servers[srv.RegistryName]; exists {
+					if regSrv.GraftHookURL != "" {
+						currentHookURL = regSrv.GraftHookURL
 					}
 					if currentHookURL == "" {
 						fmt.Println("⚠️  Warning: graft-hook URL not found in registry.")
@@ -47,8 +47,8 @@ func InstallHook(client *ssh.Client, gCfg *config.GlobalConfig, deploymentMode s
 						if hookDomain != "" {
 							currentHookURL = fmt.Sprintf("https://%s", hookDomain)
 							// Save to global registry
-							srv.GraftHookURL = currentHookURL
-							gCfg.Servers[srv.RegistryName] = srv
+							regSrv.GraftHookURL = currentHookURL
+							gCfg.Servers[srv.RegistryName] = regSrv
 							if err := config.SaveGlobalConfig(gCfg); err != nil {
 								fmt.Printf("⚠️  Warning: Could not save hook URL to global registry: %v\n", err)
 							} else {
@@ -106,9 +106,9 @@ networks:
 		currentHookURL = fmt.Sprintf("https://%s", hookDomain)
 
 		// Save to global registry
-		if srv, exists := gCfg.Servers[srv.RegistryName]; exists {
-			srv.GraftHookURL = currentHookURL
-			gCfg.Servers[srv.RegistryName] = srv
+		if regSrv, exists := gCfg.Servers[srv.RegistryName]; exists {
+			regSrv.GraftHookURL = currentHookURL
+			gCfg.Servers[srv.RegistryName] = regSrv
 			if err := config.SaveGlobalConfig(gCfg); err != nil {
 				fmt.Printf("⚠️  Warning: Could not save hook URL to global registry: %v\n", err)
 			} else {
@@ -119,5 +119,5 @@ networks:
 		}
 	}
 
-	return nil
+	return currentHookURL, nil
 }
