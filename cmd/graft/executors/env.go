@@ -40,6 +40,7 @@ func (e *Executor) RunNewEnv(name string) {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
+	e.Server = srv
 
 	projFull := fmt.Sprintf("%s-%s", projName, name)
 	var versionToKeep int

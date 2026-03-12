@@ -579,10 +579,10 @@ func GenerateWorkflows(p *Project,env string, remoteURL string, mode string, web
 		deployType := "image"
 
 		if mode == "git-images" {
-			triggers = `  workflow_run:
-    workflows: ["CI/CD Pipeline"]
+			triggers = fmt.Sprintf(`  workflow_run:
+    workflows: ["CI/CD Pipeline (%s)"]
     types:
-      - completed`
+      - completed`, env)
 			condition = "if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}"
 		} else {
 			// Use ONLY the configured branch for push triggers
@@ -609,7 +609,7 @@ func GenerateWorkflows(p *Project,env string, remoteURL string, mode string, web
 			}
 		}
 
-		deployTemplate := "name: Deploy (" + env + ")\n\n" + `on:
+		deployTemplate := "name: Deploy (" + env + ")\nrun-name: Deploying to " + env + " by @${{ github.actor }}\n\n" + `on:
 %s
   release:
     types: [published]
@@ -617,10 +617,10 @@ func GenerateWorkflows(p *Project,env string, remoteURL string, mode string, web
 
 jobs:
   deploy:
-    name: Deploy via Webhook
+    name: Deploy to %s via Webhook
     runs-on: ubuntu-latest
     %s
-    environment: CI CD
+    environment: %s
     
     steps:
       - name: Send Webhook Request
@@ -641,7 +641,7 @@ jobs:
 		if !strings.HasSuffix(projFull, "-"+env) {
 			projFull = fmt.Sprintf("%s-%s", projFull, env)
 		}
-		deployContent := fmt.Sprintf(deployTemplate, triggers, condition, hookURL, projFull, deployType)
+		deployContent := fmt.Sprintf(deployTemplate, triggers, env, condition, env, hookURL, projFull, deployType)
 
 		if err := os.WriteFile(deployPath, []byte(deployContent), 0644); err != nil {
 			return fmt.Errorf("failed to write deploy workflow: %v", err)
@@ -652,7 +652,7 @@ jobs:
 		// Use ONLY the configured branch for push triggers
 		triggerBranches := "[ " + gitBranch + " ]"
 
-		ciTemplate := fmt.Sprintf("name: CI/CD Pipeline ("+env+")\n\n"+`on:
+		ciTemplate := fmt.Sprintf("name: CI/CD Pipeline ("+env+")\nrun-name: Building and Testing [${{ github.ref_name }}]\n\n"+`on:
   push:
     branches: %s
   pull_request:
@@ -740,9 +740,7 @@ jobs:
 		}
 
 		// 3. Generate Cleanup Workflow (only for git-images)
-		cleanupTemplate := `name: Cleanup Old Images
-
-on:
+		cleanupTemplate := fmt.Sprintf("name: Cleanup Old Images (%s)\nrun-name: Cleaning up old images for %s\n\n", env, env) + `on:
   schedule:
     - cron: '0 0 * * 0' # Weekly
   workflow_dispatch:

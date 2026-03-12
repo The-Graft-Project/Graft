@@ -56,8 +56,19 @@ func SyncInitializeGitProject(env string, client *ssh.Client, p *deploy.Project,
 		return fmt.Errorf("could not get git remote URL: %w", err)
 	}
 
+	// Try to get hook URL from global config if missing in meta
+	hookURL := meta.GraftHookURL
+	if hookURL == "" {
+		gCfg, _ := config.LoadGlobalConfig()
+		if gCfg != nil && meta.Registry != "" {
+			if srv, exists := gCfg.Servers[meta.Registry]; exists {
+				hookURL = srv.GraftHookURL
+			}
+		}
+	}
+
 	// Generate Workflows
-	if err := deploy.GenerateWorkflows(p, env, remoteURL, meta.DeploymentMode, meta.GraftHookURL); err != nil {
+	if err := deploy.GenerateWorkflows(p, env, remoteURL, meta.DeploymentMode, hookURL); err != nil {
 		return fmt.Errorf("error generating workflows: %w", err)
 	}
 
