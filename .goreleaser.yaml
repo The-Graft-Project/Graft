@@ -256,11 +256,10 @@ release:
     ## Feature Update with Graft  🚀
     
     ### V2.5 Highlights:
-    1. Registry Key Bug Fixed
+    1. **Docker Passthrough Commands**: Execute docker commands directly on remote hosts or specific registries via Graft.
     2. **Bug Fixes and Improvements**
     
-    ### V2 Series Highlights (v2.0 - v2.4):
-    1. **Docker Passthrough Commands**: Execute docker commands directly on remote hosts or specific registries via Graft.
+    ### V2 Series Highlights (v2.0 - v2.3):
     1. **Rollback Feature**: Added rollback functionality to revert to previous deployments.
     2. **Multi Environment Support**: Comprehensive management for multiple deployment environments including specific configurations, workflows, and DNS.
     3. **Webhook Mapping**: Map webhook domains to servers using Graft.
