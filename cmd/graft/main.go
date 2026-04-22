@@ -21,11 +21,15 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.4.5")
+			fmt.Println("v2.4.7")
 			return
 		}
 		if arg == "--help" {
 			printUsage()
+			return
+		}
+		if arg == "pub" {
+			e.GetSSHPub()
 			return
 		}
 	}
@@ -47,7 +51,7 @@ func main() {
 		}
 		// Handle shell directly after -r: graft -r name -sh ...
 		if len(args) > 0 {
-			
+
 			e.RunRegistryDocker(registryContext, args)
 			return
 		}
@@ -101,8 +105,8 @@ func main() {
 		//handle new env
 		if args[1] == "--new" {
 			name := args[2]
-			
-			if strings.HasSuffix(strings.ToLower(name), "prod")  {
+
+			if strings.HasSuffix(strings.ToLower(name), "prod") {
 				fmt.Println("Error: Cannot create env named prod")
 				return
 			}
@@ -115,7 +119,7 @@ func main() {
 		projectmeta, err := config.LoadProjectMetadata(env)
 		if err != nil {
 			fmt.Printf("❌ Error: Environment '%s' not found for this project.\n", env)
-			
+
 			// Show available environments
 			projEnv, err := config.LoadProjectEnv()
 			if err == nil && projEnv != nil {
@@ -143,13 +147,13 @@ func main() {
 	case "init":
 		e.RunInit(args[1:])
 	case "hook":
-		if args[1]=="map"{
+		if args[1] == "map" {
 			e.RunHookMap()
 			return
-		}else{
-e.RunHook(args[1:])
+		} else {
+			e.RunHook(args[1:])
 		}
-		
+
 	case "host":
 		if len(args) < 2 {
 			fmt.Println("Usage: graft host [init|clean|sh|self-destruct]")

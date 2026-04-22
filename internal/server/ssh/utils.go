@@ -2,6 +2,10 @@ package ssh
 
 import (
 	"bufio"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -169,4 +173,49 @@ func convertToUnixPath(windowsPath string, useWSLFormat bool) string {
 	}
 
 	return unixPath
+}
+
+// GenerateSSHKey generates a new RSA SSH key pair and saves it to the specified paths
+func GenerateSSHKey(privateKeyPath, publicKeyPath string) error {
+	// Generate private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		return err
+	}
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(privateKeyPath), 0700); err != nil {
+		return err
+	}
+
+	// Marshal private key to PEM
+	privateKeyPEM := &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	}
+
+	// Write private key
+	privateFile, err := os.OpenFile(privateKeyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer privateFile.Close()
+
+	if err := pem.Encode(privateFile, privateKeyPEM); err != nil {
+		return err
+	}
+
+	// Generate public key
+	pubKey, err := ssh.NewPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return err
+	}
+
+	// Write public key
+	pubKeyBytes := ssh.MarshalAuthorizedKey(pubKey)
+	if err := os.WriteFile(publicKeyPath, pubKeyBytes, 0644); err != nil {
+		return err
+	}
+
+	return nil
 }

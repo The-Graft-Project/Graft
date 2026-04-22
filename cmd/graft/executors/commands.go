@@ -219,8 +219,33 @@ func (e *Executor) RunInit(args []string) {
 	fmt.Printf("Local config: .graft/project.json\n")
 	fmt.Printf("Boilerplate: graft-compose.yml\n")
 }
+func (e *Executor) GetSSHPub() {
+	gDir := config.GetGlobalConfigDir()
+	pemPath := filepath.Join(gDir, "graftpem")
+	pubPath := filepath.Join(gDir, "graftpub")
 
+	// Check if both files exist
+	_, errPem := os.Stat(pemPath)
+	_, errPub := os.Stat(pubPath)
 
+	if os.IsNotExist(errPem) || os.IsNotExist(errPub) {
+		fmt.Fprintln(os.Stderr, "🔑 Generating new SSH key pair (graftpub/graftpem)...")
+		if err := ssh.GenerateSSHKey(pemPath, pubPath); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ Error generating SSH key: %v\n", err)
+			return
+		}
+		fmt.Fprintln(os.Stderr, "✅ Keys generated successfully in", gDir)
+	}
+
+	pubKey, err := os.ReadFile(pubPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Error reading public key: %v\n", err)
+		return
+	}
+
+	// Just print the key to stdout so it can be piped
+	fmt.Println(strings.TrimSpace(string(pubKey)))
+}
 
 func (e *Executor) RunSync(args []string) {
 	// Parse command line arguments
@@ -272,7 +297,7 @@ func (e *Executor) RunSync(args []string) {
 			return
 		}
 		defer client.Close()
-		
+
 		if err := project.SyncHandleInitializedProject(e.Env, client, p, reader); err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
@@ -396,7 +421,6 @@ func (e *Executor) RunDockerCompose(args []string) {
 }
 
 func (e *Executor) RunHook(args []string) {
-	
 
 	client, err := e.getClient()
 	if err != nil {
@@ -448,7 +472,7 @@ func (e *Executor) RunPull(registryName, projectName string) {
 
 	fullProjectName := projectName
 	var remotePath string
-	
+
 	entry, exists := remoteProjects[fullProjectName]
 	if !exists {
 		fullProjectName = projectName + "-" + registryName
@@ -469,7 +493,6 @@ func (e *Executor) RunPull(registryName, projectName string) {
 	}
 
 	projectName = fullProjectName // Use the full name for local directory too if found as full name
-
 
 	home, _ := os.UserHomeDir()
 	localBase := filepath.Join(home, "graft", projectName)
@@ -505,6 +528,3 @@ func (e *Executor) RunPull(registryName, projectName string) {
 	fmt.Printf("\n✨ Project '%s' pulled successfully to %s\n", projectName, localBase)
 	fmt.Printf("👉 Use 'graft -p %s <command>' to manage it.\n", projectName)
 }
-
-
-

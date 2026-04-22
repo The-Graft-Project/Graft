@@ -54,14 +54,17 @@ type GlobalConfig struct {
 	Projects map[string]string       `json:"projects"`
 }
 
-func GetGlobalRegistryPath() string {
+func GetGlobalConfigDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".graft", "registry.json")
+	return filepath.Join(home, ".graft")
+}
+
+func GetGlobalRegistryPath() string {
+	return filepath.Join(GetGlobalConfigDir(), "registry.json")
 }
 
 func GetGlobalConfigPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".graft", "config.json")
+	return filepath.Join(GetGlobalConfigDir(), "config.json")
 }
 
 func LoadCloudFlareConfig() (*Cloudflare, error) {

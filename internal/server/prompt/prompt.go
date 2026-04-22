@@ -3,10 +3,13 @@ package prompt
 import (
 	"bufio"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/skssmd/graft/internal/config"
 )
 
 // PromptDomain prompts the user for a domain name with an optional default value
@@ -126,17 +129,34 @@ func PromptNewServer(reader *bufio.Reader) (string, int, string, string) {
 	user, _ := reader.ReadString('\n')
 	user = strings.TrimSpace(user)
 
-	fmt.Print("Key Path: ")
-	keyPath, _ := reader.ReadString('\n')
-	keyPath = strings.TrimSpace(keyPath)
-	//if key path starts with ./ then dow pwd and marge to find absolute keypath
-	if strings.HasPrefix(keyPath, "./") {
-		absPath, err := filepath.Abs(keyPath)
-		if err != nil {
-			fmt.Println("Error getting absolute path:", err)
-			return host, port, user, keyPath
+	gDir := config.GetGlobalConfigDir()
+	defaultKeyPath := filepath.Join(gDir, "graftpem")
+
+	var keyPath string
+	for {
+		fmt.Printf("Key Path [graft pem]: ")
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		if input == "" {
+			keyPath = defaultKeyPath
+		} else {
+			keyPath = input
 		}
-		keyPath = absPath
+
+		// Handle ./ prefix
+		if strings.HasPrefix(keyPath, "./") {
+			absPath, err := filepath.Abs(keyPath)
+			if err == nil {
+				keyPath = absPath
+			}
+		}
+
+		// Check if it exists
+		if _, err := os.Stat(keyPath); err == nil {
+			break
+		}
+		fmt.Printf("❌ Error: Key not found at '%s'. Please recheck and enter.\n", keyPath)
 	}
 
 	return host, port, user, keyPath
