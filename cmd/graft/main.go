@@ -21,7 +21,7 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.4.7")
+			fmt.Println("v2.4.8")
 			return
 		}
 		if arg == "--help" {
@@ -29,7 +29,11 @@ func main() {
 			return
 		}
 		if arg == "pub" {
-			e.GetSSHPub()
+			if len(args) > 1 && args[1] == "rollout" {
+				e.RolloutSSHKeys()
+			} else {
+				e.GetSSHPub()
+			}
 			return
 		}
 	}
@@ -301,6 +305,7 @@ func printUsage() {
 	fmt.Println("\nCommands:")
 	fmt.Println("  init [-f]                 Initialize a new project")
 	fmt.Println("  registry [ls|add|del]     Manage registered servers")
+	fmt.Println("  pub [rollout]             Manage Graft SSH keys (show public key or rotate)")
 	fmt.Println("  projects ls               List local projects")
 	fmt.Println("  pull <project>            Pull/Clone project from remote")
 	fmt.Println("  host [init|clean|sh|self-destruct]  Manage current project's host context")

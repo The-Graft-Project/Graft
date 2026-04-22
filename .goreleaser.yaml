@@ -257,7 +257,7 @@ release:
     
     ### V2.4 Highlights:
     1. **Docker Passthrough Commands**: Execute docker commands directly on remote hosts or specific registries via Graft.
-    2. ***Default Graft Ssh Key*: Use graft's default ssh key to get rid of mamaging ssh key headaches simpley with command **graft pub**
+    2. ***Default Graft Ssh Key*: Use graft's default ssh key to get rid of mamaging ssh key headaches simpley with command **graft pub** and rollout with **graft pub rollout**
     2. **Bug Fixes and Improvements**
     
     ### V2 Series Highlights (v2.0 - v2.3):

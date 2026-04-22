@@ -177,8 +177,7 @@ func convertToUnixPath(windowsPath string, useWSLFormat bool) string {
 
 // GenerateSSHKey generates a new RSA SSH key pair and saves it to the specified paths
 func GenerateSSHKey(privateKeyPath, publicKeyPath string) error {
-	// Generate private key
-	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	privPEM, pubSSH, err := GenerateSSHKeyPairStrings()
 	if err != nil {
 		return err
 	}
@@ -188,34 +187,40 @@ func GenerateSSHKey(privateKeyPath, publicKeyPath string) error {
 		return err
 	}
 
+	// Write private key
+	if err := os.WriteFile(privateKeyPath, []byte(privPEM), 0600); err != nil {
+		return err
+	}
+
+	// Write public key
+	if err := os.WriteFile(publicKeyPath, []byte(pubSSH), 0644); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GenerateSSHKeyPairStrings generates a new RSA SSH key pair and returns them as strings
+func GenerateSSHKeyPairStrings() (string, string, error) {
+	// Generate private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		return "", "", err
+	}
+
 	// Marshal private key to PEM
 	privateKeyPEM := &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
 	}
-
-	// Write private key
-	privateFile, err := os.OpenFile(privateKeyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer privateFile.Close()
-
-	if err := pem.Encode(privateFile, privateKeyPEM); err != nil {
-		return err
-	}
+	privPEM := string(pem.EncodeToMemory(privateKeyPEM))
 
 	// Generate public key
 	pubKey, err := ssh.NewPublicKey(&privateKey.PublicKey)
 	if err != nil {
-		return err
+		return "", "", err
 	}
+	pubSSH := string(ssh.MarshalAuthorizedKey(pubKey))
 
-	// Write public key
-	pubKeyBytes := ssh.MarshalAuthorizedKey(pubKey)
-	if err := os.WriteFile(publicKeyPath, pubKeyBytes, 0644); err != nil {
-		return err
-	}
-
-	return nil
+	return privPEM, pubSSH, nil
 }

@@ -247,6 +247,99 @@ func (e *Executor) GetSSHPub() {
 	fmt.Println(strings.TrimSpace(string(pubKey)))
 }
 
+func (e *Executor) RolloutSSHKeys() {
+	gDir := config.GetGlobalConfigDir()
+	pemPath := filepath.Join(gDir, "graftpem")
+	pubPath := filepath.Join(gDir, "graftpub")
+
+	// 1. Load old keys
+	_, err := os.ReadFile(pemPath)
+	if err != nil {
+		fmt.Printf("❌ Error: Could not read old private key: %v\n", err)
+		return
+	}
+	oldPubBytes, err := os.ReadFile(pubPath)
+	if err != nil {
+		fmt.Printf("❌ Error: Could not read old public key: %v\n", err)
+		return
+	}
+	oldPubKey := string(oldPubBytes)
+
+	// 2. Generate new keys in memory
+	fmt.Println("🔄 Generating new SSH key pair...")
+	newPem, newPub, err := ssh.GenerateSSHKeyPairStrings()
+	if err != nil {
+		fmt.Printf("❌ Error generating new keys: %v\n", err)
+		return
+	}
+
+	// 3. Find servers using the old graft key
+	gCfg := e.GlobalConfig
+	if gCfg == nil {
+		fmt.Println("❌ Error: Global config not loaded.")
+		return
+	}
+
+	var targets []config.ServerConfig
+	for _, srv := range gCfg.Servers {
+		// Check if srv.KeyPath points to our graftpem
+		// We normalize paths for comparison
+		srvKeyAbs, _ := filepath.Abs(srv.KeyPath)
+		ourPemAbs, _ := filepath.Abs(pemPath)
+
+		if srvKeyAbs == ourPemAbs {
+			targets = append(targets, srv)
+		}
+	}
+
+	if len(targets) == 0 {
+		fmt.Println("ℹ️  No servers found using the Graft SSH key. Only local keys will be updated.")
+	} else {
+		fmt.Printf("🚀 Rolling out keys to %d servers...\n", len(targets))
+	}
+
+	// 4. Update each server
+	successCount := 0
+	for _, srv := range targets {
+		fmt.Printf("📡 Updating %s (%s)... ", srv.RegistryName, srv.Host)
+
+		// Connect using OLD key bytes (since we haven't overwritten the file yet, but we have them in memory)
+		// NewClient reads from file, so it's safe to call it now
+		client, err := ssh.NewClient(srv.Host, srv.Port, srv.User, srv.KeyPath)
+		if err != nil {
+			fmt.Printf("❌ Connection failed: %v\n", err)
+			continue
+		}
+
+		if err := client.UpdateAuthorizedKey(oldPubKey, newPub); err != nil {
+			fmt.Printf("❌ Update failed: %v\n", err)
+			client.Close()
+			continue
+		}
+
+		fmt.Println("✅ Success")
+		client.Close()
+		successCount++
+	}
+
+	// 5. Save new keys locally
+	fmt.Println("💾 Saving new keys locally...")
+	if err := os.WriteFile(pemPath, []byte(newPem), 0600); err != nil {
+		fmt.Printf("❌ Error saving private key: %v\n", err)
+		return
+	}
+	if err := os.WriteFile(pubPath, []byte(newPub), 0644); err != nil {
+		fmt.Printf("❌ Error saving public key: %v\n", err)
+		return
+	}
+
+	fmt.Printf("\n✨ Successfully rolled out SSH keys! (%d servers updated)\n", successCount)
+	if len(targets) > successCount {
+		fmt.Printf("⚠️  Warning: %d servers failed to update. They still expect the OLD key.\n", len(targets)-successCount)
+		fmt.Printf("   You may need to manually add the new public key to them.\n")
+	}
+}
+
 func (e *Executor) RunSync(args []string) {
 	// Parse command line arguments
 	sa := project.ParseSyncArgs(args)
