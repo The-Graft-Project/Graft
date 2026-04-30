@@ -752,10 +752,6 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 	if doCompose {
 		// Upload the generated docker-compose.yml
 		remoteCompose := path.Join(remoteDir, "docker-compose.yml")
-		fmt.Fprintf(stdout, "🔍 Verifying local %s exists...\n", "docker-compose.yml")
-		if _, err := os.Stat("docker-compose.yml"); err != nil {
-			return fmt.Errorf("local docker-compose.yml was not generated: %v", err)
-		}
 
 		fmt.Fprintf(stdout, "📤 Uploading generated docker-compose.yml to %s...\n", remoteCompose)
 		localComposeFile := filepath.Join("compose", fmt.Sprintf("%s.yml", envname))

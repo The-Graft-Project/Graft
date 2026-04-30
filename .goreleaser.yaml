@@ -180,6 +180,7 @@ winget:
     
     # Installation notes
     release_notes: |
+      - Graft Ssh Key: Use graft's default ssh key to get rid of mamaging ssh key headaches simpley with command [graft pub] and rollout with [graft pub rollout]
       - Cloudflare API Integration: Automated DNS zone mapping based on Traefik host labels.
       - Cloudflare Zone Registry: Manage multiple Cloudflare accounts and zones with an interactive selection menu.
       - Database Backup Automation: Easily backup infrastructure databases to S3/R2 (Experimental).
