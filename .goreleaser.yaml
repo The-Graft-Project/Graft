@@ -180,7 +180,9 @@ winget:
     
     # Installation notes
     release_notes: |
+      - Service Scaling: Scale any service to N replicas with [graft scale <service> <n>] — Traefik load balances automatically. Use 1 to remove replicas. Scale persists through deploys.
       - Interactive PSQL Session: Open a live psql shell on infra Postgres with [graft psql] or [graft -r <registry> psql].
+      - Environment Listing: [graft env ls] shows all environments with registry, domain, and mode.
       - Graft SSH Key: Manage SSH keys with [graft pub] and rotate with [graft pub rollout].
       - Cloudflare API Integration: Automated DNS zone mapping based on Traefik host labels.
       - Cloudflare Zone Registry: Manage multiple Cloudflare accounts and zones with an interactive selection menu.
@@ -255,9 +257,11 @@ release:
   header: |
     ## Feature Update with Graft  🚀
 
-    ### V2.5 Highlights:
-    1. **Interactive PSQL Session**: Open a live `psql` shell on your infra Postgres directly from the CLI — `graft psql [dbname]` or `graft -r <registry> psql [dbname]`.
-    2. **Bug Fixes and Improvements**
+    ### V2.5.1 Highlights:
+    1. **Service Scaling**: Scale any service to N replicas with `graft scale <service> <n>` — Traefik automatically load balances across them. Scale persists through deploys.
+    2. **Interactive PSQL Session**: Open a live `psql` shell on your infra Postgres directly from the CLI — `graft psql [dbname]` or `graft -r <registry> psql [dbname]`.
+    3. **Environment Listing**: `graft env ls` lists all environments with their registry, domain, and deployment mode.
+    4. **Bug Fixes and Improvements**
 
     ### V2 Series Highlights (v2.0 - v2.4):
     1. **Rollback Feature**: Revert to previous deployments with `graft rollback` or `graft rollback service <name>`.

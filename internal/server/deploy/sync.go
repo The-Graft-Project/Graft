@@ -81,6 +81,9 @@ func SyncService(envname string, client *ssh.Client, p *Project, serviceName str
 		compose.Services[sName] = sPtr
 	}
 
+	// Inject scale replicas if configured
+	InjectScaleReplicas(compose, meta.Scale)
+
 	// Generate the actual docker-compose.yml content
 	updatedComposeData, err := yaml.Marshal(compose)
 	if err != nil {
@@ -564,6 +567,9 @@ func Sync(envname string, client *ssh.Client, p *Project, noCache, heave, useGit
 		compose.Services[sName] = sPtr
 	}
 
+	// Inject scale replicas if configured
+	InjectScaleReplicas(compose, meta.Scale)
+
 	// Generate the actual docker-compose.yml content
 	updatedComposeData, err := yaml.Marshal(compose)
 	if err != nil {
@@ -723,6 +729,9 @@ func SyncComposeOnly(envname string, client *ssh.Client, p *Project, heave bool,
 
 			compose.Services[sName] = sPtr
 		}
+
+		// Inject scale replicas if configured
+		InjectScaleReplicas(compose, meta.Scale)
 
 		// Generate the actual docker-compose.yml content
 		updatedComposeData, err := yaml.Marshal(compose)

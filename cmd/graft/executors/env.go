@@ -13,6 +13,51 @@ import (
 	"github.com/skssmd/graft/internal/server/prompt"
 )
 
+func (e *Executor) RunEnvLs() {
+	pEnv, err := config.LoadProjectEnv()
+	if err != nil {
+		fmt.Printf("❌ Error: Could not load project configuration. Make sure you are in a Graft project directory: %v\n", err)
+		return
+	}
+
+	if len(pEnv.Env) == 0 {
+		fmt.Println("No environments found for this project.")
+		return
+	}
+
+	fmt.Printf("\n📋 Environments for project '%s':\n", pEnv.Name)
+	fmt.Printf("%-15s %-15s %-30s %-20s\n", "Environment", "Registry", "Domain", "Mode")
+	fmt.Println(strings.Repeat("-", 85))
+
+	// Always print prod first if it exists
+	if meta, ok := pEnv.Env["prod"]; ok {
+		domain := meta.Domain
+		if domain == "" {
+			domain = "-"
+		}
+		mode := meta.DeploymentMode
+		if mode == "" {
+			mode = "-"
+		}
+		fmt.Printf("%-15s %-15s %-30s %-20s\n", "prod", meta.Registry, domain, mode)
+	}
+	for name, meta := range pEnv.Env {
+		if name == "prod" {
+			continue
+		}
+		domain := meta.Domain
+		if domain == "" {
+			domain = "-"
+		}
+		mode := meta.DeploymentMode
+		if mode == "" {
+			mode = "-"
+		}
+		fmt.Printf("%-15s %-15s %-30s %-20s\n", name, meta.Registry, domain, mode)
+	}
+	fmt.Println()
+}
+
 func (e *Executor) RunNewEnv(name string) {
 	reader := bufio.NewReader(os.Stdin)
 

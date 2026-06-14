@@ -226,8 +226,9 @@ type ProjectMetadata struct {
 	Domain          string `json:"domain,omitempty"`
 	Initialized     bool   `json:"initialized"`
 	DeploymentMode  string `json:"deployment_mode,omitempty"` // "git-images", "git-repo-serverbuild", "git-manual", "direct-serverbuild", "direct-localbuild", "cloud-flyio", "cloud-vercel"
-	GitBranch       string `json:"git_branch,omitempty"`
-	RollbackBackups int    `json:"rollback_backups,omitempty"`
+	GitBranch       string         `json:"git_branch,omitempty"`
+	RollbackBackups int            `json:"rollback_backups,omitempty"`
+	Scale           map[string]int `json:"scale,omitempty"`
 }
 type ProjectEnv struct {
 	Name            string `json:"name"`

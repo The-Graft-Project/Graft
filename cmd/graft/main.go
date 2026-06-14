@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/skssmd/graft/cmd/graft/executors"
@@ -21,7 +22,7 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.5.0")
+			fmt.Println("v2.5.1")
 			return
 		}
 		if arg == "--help" {
@@ -118,6 +119,11 @@ func main() {
 			fmt.Println("")
 			fmt.Println("Usage: graft env --new <envname>")
 			fmt.Println("Usage: graft -p <projectname> env --new <envname>")
+			return
+		}
+		//handle env ls
+		if args[1] == "ls" {
+			e.RunEnvLs()
 			return
 		}
 		//handle new env
@@ -271,6 +277,17 @@ func main() {
 			return
 		}
 		e.RunPull(registryContext, args[1])
+	case "scale":
+		if len(args) < 3 {
+			fmt.Println("Usage: graft scale <service> <replicas>")
+			return
+		}
+		n, err := strconv.Atoi(args[2])
+		if err != nil || n < 1 {
+			fmt.Println("Error: replica count must be a positive integer (use 1 to remove replicas)")
+			return
+		}
+		e.RunScale(args[1], n)
 	case "psql":
 		var dbname string
 		if len(args) > 1 {
@@ -338,6 +355,10 @@ func printUsage() {
 	fmt.Println("  rollback service <name>   Restore specific service from a backup")
 	fmt.Println("  rollback config           Configure rollback versions to keep")
 	fmt.Println("  logs <service>            Stream service logs")
+	fmt.Println("  env ls                    List all environments with their registry and domain")
+	fmt.Println("  env --new <name>          Create a new deployment environment")
+	fmt.Println("  env <name> <command>      Run a command in a specific environment context")
+	fmt.Println("  scale <service> <n>       Scale a service to N replicas via Traefik load balancing (1 = remove replicas)")
 	fmt.Println("  psql [dbname]             Open interactive psql session on infra postgres")
 	fmt.Println("  -r <name> psql [dbname]   Open psql session on a specific registry server")
 	fmt.Println("  mode                      Change project deployment mode")
