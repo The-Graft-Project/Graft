@@ -180,16 +180,15 @@ winget:
     
     # Installation notes
     release_notes: |
-      - Graft Ssh Key: Use graft's default ssh key to get rid of mamaging ssh key headaches simpley with command [graft pub] and rollout with [graft pub rollout]
+      - Interactive PSQL Session: Open a live psql shell on infra Postgres with [graft psql] or [graft -r <registry> psql].
+      - Graft SSH Key: Manage SSH keys with [graft pub] and rotate with [graft pub rollout].
       - Cloudflare API Integration: Automated DNS zone mapping based on Traefik host labels.
       - Cloudflare Zone Registry: Manage multiple Cloudflare accounts and zones with an interactive selection menu.
-      - Database Backup Automation: Easily backup infrastructure databases to S3/R2 (Experimental).
-      - Rollback to versions: Easily rollback and revert changes to previous deployments.
+      - Database Backup Automation: Backup infrastructure databases to S3/R2 (Experimental).
+      - Rollback to versions: Rollback and revert changes to previous deployments.
+      - Docker Passthrough Commands: Execute docker commands on remote hosts or registries via Graft.
       - Optimized for Git and GitHub Actions CI/CD flows.
-      - Improved domain detection.
-      - Duplicate record handling.
-      - Ghcr image linking.
-      - Boilerplate service priority guidelines.
+      - Multi-environment support with separate configs, workflows, and DNS.
       - Webhook detection and error handling.
     
     # Repository configuration
@@ -255,21 +254,22 @@ release:
   
   header: |
     ## Feature Update with Graft  🚀
-    
-    ### V2.4 Highlights:
-    1. **Docker Passthrough Commands**: Execute docker commands directly on remote hosts or specific registries via Graft.
-    2. ***Default Graft Ssh Key*: Use graft's default ssh key to get rid of mamaging ssh key headaches simpley with command **graft pub** and rollout with **graft pub rollout**
+
+    ### V2.5 Highlights:
+    1. **Interactive PSQL Session**: Open a live `psql` shell on your infra Postgres directly from the CLI — `graft psql [dbname]` or `graft -r <registry> psql [dbname]`.
     2. **Bug Fixes and Improvements**
-    
-    ### V2 Series Highlights (v2.0 - v2.3):
-    1. **Rollback Feature**: Added rollback functionality to revert to previous deployments.
-    2. **Multi Environment Support**: Comprehensive management for multiple deployment environments including specific configurations, workflows, and DNS.
+
+    ### V2 Series Highlights (v2.0 - v2.4):
+    1. **Rollback Feature**: Revert to previous deployments with `graft rollback` or `graft rollback service <name>`.
+    2. **Multi Environment Support**: Manage multiple deployment environments with separate configs, workflows, and DNS.
     3. **Webhook Mapping**: Map webhook domains to servers using Graft.
-    4. **Git Remote Modes**: Deployments now go through GitHub Workflows and CI/CD channels.
-    5. **Graft-Hook**: A new webhook service for Graft-based servers.
-    6. **Automated GitHub Workflows**: Generate workflows automatically from `graft-compose.yml`.
+    4. **Git Remote Modes**: Deployments through GitHub Workflows and CI/CD channels.
+    5. **Graft-Hook**: Webhook service for Graft-based servers.
+    6. **Automated GitHub Workflows**: Auto-generate workflows from `graft-compose.yml`.
     7. **Cloudflare Integration**: Automated DNS zone mapping and zone management.
     8. **Database Backup Automation**: Infrastructure database backups to S3/R2 (Experimental).
+    9. **Docker Passthrough Commands**: Execute docker commands on remote hosts or specific registries via Graft.
+    10. **Default Graft SSH Key**: Manage SSH keys with `graft pub` and rotate with `graft pub rollout`.
   
   footer: |
     ---
