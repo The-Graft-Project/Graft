@@ -21,7 +21,7 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.4.9")
+			fmt.Println("v2.5.0")
 			return
 		}
 		if arg == "--help" {
@@ -51,6 +51,20 @@ func main() {
 		// Handle shell directly after -r: graft -r name -sh ...
 		if len(args) > 0 && (args[0] == "-sh" || args[0] == "--sh") {
 			e.RunRegistryShell(registryContext, args[1:])
+			return
+		}
+		// Handle psql directly after -r: graft -r name psql [dbname]
+		if len(args) > 0 && args[0] == "psql" {
+			gCfg, _ := config.LoadGlobalConfig()
+			if gCfg != nil {
+				srv := gCfg.Servers[registryContext]
+				e.Server = &srv
+			}
+			var dbname string
+			if len(args) > 1 {
+				dbname = args[1]
+			}
+			e.RunPsql(dbname)
 			return
 		}
 		// Handle shell directly after -r: graft -r name -sh ...
@@ -257,6 +271,12 @@ func main() {
 			return
 		}
 		e.RunPull(registryContext, args[1])
+	case "psql":
+		var dbname string
+		if len(args) > 1 {
+			dbname = args[1]
+		}
+		e.RunPsql(dbname)
 	case "mode":
 		e.RunMode()
 	case "map":
@@ -318,6 +338,8 @@ func printUsage() {
 	fmt.Println("  rollback service <name>   Restore specific service from a backup")
 	fmt.Println("  rollback config           Configure rollback versions to keep")
 	fmt.Println("  logs <service>            Stream service logs")
+	fmt.Println("  psql [dbname]             Open interactive psql session on infra postgres")
+	fmt.Println("  -r <name> psql [dbname]   Open psql session on a specific registry server")
 	fmt.Println("  mode                      Change project deployment mode")
 	fmt.Println("  map                       Map all service domains to Cloudflare DNS")
 	fmt.Println("  map service <name>        Map specific service domain to Cloudflare DNS")

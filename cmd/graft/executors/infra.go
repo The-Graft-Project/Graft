@@ -150,6 +150,53 @@ func (e *Executor) RunInfra(args []string) {
 	fmt.Println("\n✅ Infrastructure updated successfully!")
 }
 
+func (e *Executor) RunPsql(dbname string) {
+	client, err := e.getClient()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	// Fetch infra credentials from remote server
+	tmpFile := filepath.Join(os.TempDir(), "psql_infra.config")
+	defer os.Remove(tmpFile)
+
+	if err := client.DownloadFile(config.RemoteInfraPath, tmpFile); err != nil {
+		fmt.Println("Error: Could not fetch infra config from remote server.")
+		fmt.Println("Make sure infrastructure has been initialized with 'graft host init'")
+		return
+	}
+
+	data, err := os.ReadFile(tmpFile)
+	if err != nil {
+		fmt.Printf("Error reading infra config: %v\n", err)
+		return
+	}
+
+	var infraCfg config.InfraConfig
+	if err := json.Unmarshal(data, &infraCfg); err != nil {
+		fmt.Printf("Error parsing infra config: %v\n", err)
+		return
+	}
+
+	if infraCfg.PostgresUser == "" {
+		fmt.Println("Error: Postgres is not configured on this host. Run 'graft host init' to set it up.")
+		return
+	}
+
+	target := dbname
+	if target == "" {
+		target = infraCfg.PostgresDB
+	}
+
+	fmt.Printf("🐘 Connecting to postgres database '%s' on %s...\n", target, e.Server.Host)
+	cmd := fmt.Sprintf("sudo docker exec -it graft-postgres psql -U %s -d %s", infraCfg.PostgresUser, target)
+	if err := client.RunInteractiveCommand(cmd); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+}
+
 func (e *Executor) RunInfraReload() {
 	client, err := e.getClient()
 	if err != nil {

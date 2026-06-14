@@ -172,6 +172,46 @@ func (c *Client) InteractiveSession() error {
 	return cmd.Run()
 }
 
+func (c *Client) RunInteractiveCommand(cmd string) error {
+	session, err := c.client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	modes := ssh.TerminalModes{
+		ssh.ECHO:          1,
+		ssh.TTY_OP_ISPEED: 14400,
+		ssh.TTY_OP_OSPEED: 14400,
+	}
+
+	fd := int(os.Stdin.Fd())
+	width, height, err := term.GetSize(fd)
+	if err != nil {
+		width, height = 80, 40
+	}
+
+	if err := session.RequestPty("xterm-256color", height, width, modes); err != nil {
+		return fmt.Errorf("request for pseudo terminal failed: %v", err)
+	}
+
+	session.Stdin = os.Stdin
+	session.Stdout = os.Stdout
+	session.Stderr = os.Stderr
+
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return fmt.Errorf("failed to set raw mode: %v", err)
+	}
+	defer term.Restore(fd, oldState)
+
+	if err := session.Start(cmd); err != nil {
+		return fmt.Errorf("failed to start command: %v", err)
+	}
+
+	return session.Wait()
+}
+
 func (c *Client) SimulatedSession() error {
 	session, err := c.client.NewSession()
 	if err != nil {
