@@ -180,8 +180,11 @@ winget:
     
     # Installation notes
     release_notes: |
-      - Service Scaling: Scale any service to N replicas with [graft scale <service> <n>] — Traefik load balances automatically. Use 1 to remove replicas. Scale persists through deploys.
-      - Interactive PSQL Session: Open a live psql shell on infra Postgres with [graft psql] or [graft -r <registry> psql].
+      - Service Scaling: Scale any service to N replicas with [graft scale <service> <n>] — Traefik load balances automatically. Scale persists through deploys.
+      - PSQL Passthrough: Full psql passthrough with env-aware auto-connect. Supports all native psql flags (-c, -f, -t, etc.).
+      - Isolated DB Credentials (Security): Each database gets a dedicated Postgres user and password. Admin credentials never leak to project secrets.
+      - Per-Environment Database Linking: Database auto-linked per environment. [graft psql] connects to the right db for the current env.
+      - Unified DB Init: Initialize databases from project scope, host scope [graft host db], or registry scope [graft -r <name> db]. All paths prompt to link with overwrite protection.
       - Environment Listing: [graft env ls] shows all environments with registry, domain, and mode.
       - Graft SSH Key: Manage SSH keys with [graft pub] and rotate with [graft pub rollout].
       - Cloudflare API Integration: Automated DNS zone mapping based on Traefik host labels.
@@ -257,11 +260,14 @@ release:
   header: |
     ## Feature Update with Graft  🚀
 
-    ### V2.5.1 Highlights:
+    ### V2.5.2 Highlights:
     1. **Service Scaling**: Scale any service to N replicas with `graft scale <service> <n>` — Traefik automatically load balances across them. Scale persists through deploys.
-    2. **Interactive PSQL Session**: Open a live `psql` shell on your infra Postgres directly from the CLI — `graft psql [dbname]` or `graft -r <registry> psql [dbname]`.
-    3. **Environment Listing**: `graft env ls` lists all environments with their registry, domain, and deployment mode.
-    4. **Bug Fixes and Improvements**
+    2. **PSQL Passthrough**: Full psql passthrough with env-aware auto-connect. Supports all native psql flags (`-c`, `-f`, `-t`, etc.).
+    3. **Isolated DB Credentials (Security)**: `graft db <name> init` now creates a dedicated Postgres user and password per database. Each project gets scoped credentials — admin credentials never leak to project secrets.
+    4. **Per-Environment Database Linking**: Database name stored per environment in project metadata. `graft psql` auto-connects to the correct database for the current env.
+    5. **Unified DB Init Across Scopes**: Initialize databases from project scope (`graft db`), host scope (`graft host db`), or registry scope (`graft -r <registry> db`). All paths prompt to link to an environment with overwrite protection.
+    6. **Environment Listing**: `graft env ls` lists all environments with their registry, domain, and deployment mode.
+    7. **Bug Fixes and Improvements**
 
     ### V2 Series Highlights (v2.0 - v2.4):
     1. **Rollback Feature**: Revert to previous deployments with `graft rollback` or `graft rollback service <name>`.

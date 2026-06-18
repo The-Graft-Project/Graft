@@ -1,10 +1,12 @@
 package executors
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
@@ -44,8 +46,68 @@ func (e *Executor) RunInfraInit(typ, name string) {
 	}
 
 	fmt.Printf("\n✅ %s '%s' initialized!\n", typ, name)
-	fmt.Printf("Secret saved at ./graft/secrets.env")
+	fmt.Printf("Secret saved at ./graft/secrets.env\n")
 
+	// Offer to link database to a project environment
+	if typ == "postgres" {
+		pEnv, err := config.LoadProjectEnv()
+		if err != nil || pEnv == nil || len(pEnv.Env) == 0 {
+			return
+		}
+
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("\n📂 Link this database to a project environment? (y/n): ")
+		confirm, _ := reader.ReadString('\n')
+		confirm = strings.ToLower(strings.TrimSpace(confirm))
+		if confirm != "y" && confirm != "yes" {
+			return
+		}
+
+		targetEnv := e.Env
+		if len(pEnv.Env) > 1 {
+			fmt.Println("📋 Which environment?")
+			var envNames []string
+			for eName := range pEnv.Env {
+				envNames = append(envNames, eName)
+			}
+			for i, eName := range envNames {
+				fmt.Printf("  [%d] %s\n", i+1, eName)
+			}
+			fmt.Print("Select environment: ")
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+
+			idx, err := strconv.Atoi(input)
+			if err != nil || idx < 1 || idx > len(envNames) {
+				fmt.Println("Invalid selection. Database not linked.")
+				return
+			}
+			targetEnv = envNames[idx-1]
+		}
+
+		meta, err := config.LoadProjectMetadata(targetEnv)
+		if err != nil || meta == nil {
+			return
+		}
+
+		if meta.Database != "" && meta.Database != name {
+			fmt.Printf("⚠️  Environment '%s' already has database '%s' linked.\n", targetEnv, meta.Database)
+			fmt.Print("Overwrite? (y/n): ")
+			overwrite, _ := reader.ReadString('\n')
+			overwrite = strings.ToLower(strings.TrimSpace(overwrite))
+			if overwrite != "y" && overwrite != "yes" {
+				fmt.Println("Database not linked.")
+				return
+			}
+		}
+
+		meta.Database = name
+		if err := config.SaveProjectMetadata(targetEnv, meta); err != nil {
+			fmt.Printf("Warning: Could not save database to project metadata: %v\n", err)
+		} else {
+			fmt.Printf("📂 Database '%s' linked to environment '%s'.\n", name, targetEnv)
+		}
+	}
 }
 
 func (e *Executor) RunInfra(args []string) {
@@ -150,7 +212,10 @@ func (e *Executor) RunInfra(args []string) {
 	fmt.Println("\n✅ Infrastructure updated successfully!")
 }
 
-func (e *Executor) RunPsql(dbname string) {
+// RunPsql opens a psql session on the infra postgres.
+// dbOverride: when non-empty, used as the database name and all args are treated as psql flags.
+// When empty (registry scope), the first non-flag arg is parsed as dbname, falling back to master.
+func (e *Executor) RunPsql(dbOverride string, args []string) {
 	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -185,15 +250,65 @@ func (e *Executor) RunPsql(dbname string) {
 		return
 	}
 
-	target := dbname
-	if target == "" {
-		target = infraCfg.PostgresDB
+	var dbname string
+	var psqlFlags []string
+	interactive := true
+
+	if dbOverride != "" {
+		// Project scope — db comes from env metadata, all args are psql flags
+		dbname = dbOverride
+		for i := 0; i < len(args); i++ {
+			if args[i] == "-c" || args[i] == "-f" {
+				interactive = false
+				psqlFlags = append(psqlFlags, args[i])
+				if i+1 < len(args) {
+					i++
+					psqlFlags = append(psqlFlags, "'"+strings.ReplaceAll(args[i], "'", "'\\''")+"'")
+				}
+			} else {
+				psqlFlags = append(psqlFlags, args[i])
+			}
+		}
+	} else {
+		// Registry scope — first non-flag arg is dbname
+		for i := 0; i < len(args); i++ {
+			if args[i] == "-c" || args[i] == "-f" {
+				interactive = false
+				psqlFlags = append(psqlFlags, args[i])
+				if i+1 < len(args) {
+					i++
+					psqlFlags = append(psqlFlags, "'"+strings.ReplaceAll(args[i], "'", "'\\''")+"'")
+				}
+			} else if strings.HasPrefix(args[i], "-") {
+				psqlFlags = append(psqlFlags, args[i])
+			} else if dbname == "" {
+				dbname = args[i]
+			} else {
+				psqlFlags = append(psqlFlags, args[i])
+			}
+		}
+		if dbname == "" {
+			dbname = infraCfg.PostgresDB
+		}
 	}
 
-	fmt.Printf("🐘 Connecting to postgres database '%s' on %s...\n", target, e.Server.Host)
-	cmd := fmt.Sprintf("sudo docker exec -it graft-postgres psql -U %s -d %s", infraCfg.PostgresUser, target)
-	if err := client.RunInteractiveCommand(cmd); err != nil {
-		fmt.Printf("Error: %v\n", err)
+	psqlCmd := fmt.Sprintf("psql -U %s -d %s", infraCfg.PostgresUser, dbname)
+	if len(psqlFlags) > 0 {
+		psqlCmd += " " + strings.Join(psqlFlags, " ")
+	}
+
+	if interactive {
+		fmt.Printf("🐘 Connecting to postgres database '%s' on %s...\n", dbname, e.Server.Host)
+		cmd := fmt.Sprintf("sudo docker exec -it graft-postgres %s", psqlCmd)
+		if err := client.RunInteractiveCommand(cmd); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		}
+	} else {
+		fmt.Printf("🐘 Running on '%s' (%s):\n", dbname, e.Server.Host)
+		cmd := fmt.Sprintf("sudo docker exec graft-postgres %s", psqlCmd)
+		if err := client.RunCommand(cmd, os.Stdout, os.Stderr); err != nil {
+			fmt.Printf("Error: %v\n", err)
+		}
 	}
 }
 

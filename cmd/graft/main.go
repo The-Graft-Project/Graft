@@ -22,7 +22,7 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.5.1")
+			fmt.Println("v2.5.2")
 			return
 		}
 		if arg == "--help" {
@@ -54,18 +54,32 @@ func main() {
 			e.RunRegistryShell(registryContext, args[1:])
 			return
 		}
-		// Handle psql directly after -r: graft -r name psql [dbname]
+		// Handle psql directly after -r: graft -r name psql [dbname] [flags...]
 		if len(args) > 0 && args[0] == "psql" {
 			gCfg, _ := config.LoadGlobalConfig()
 			if gCfg != nil {
 				srv := gCfg.Servers[registryContext]
 				e.Server = &srv
 			}
-			var dbname string
-			if len(args) > 1 {
-				dbname = args[1]
+			e.RunPsql("", args[1:])
+			return
+		}
+		// Handle db/redis init on registry: graft -r name db <dbname> init
+		if len(args) > 0 && (args[0] == "db" || args[0] == "redis") {
+			gCfg, _ := config.LoadGlobalConfig()
+			if gCfg != nil {
+				srv := gCfg.Servers[registryContext]
+				e.Server = &srv
 			}
-			e.RunPsql(dbname)
+			typ := "postgres"
+			if args[0] == "redis" {
+				typ = "redis"
+			}
+			if len(args) < 3 || args[2] != "init" {
+				fmt.Printf("Usage: graft -r <registry> %s <name> init\n", args[0])
+				return
+			}
+			e.RunInfraInit(typ, args[1])
 			return
 		}
 		// Handle shell directly after -r: graft -r name -sh ...
@@ -180,7 +194,7 @@ func main() {
 
 	case "host":
 		if len(args) < 2 {
-			fmt.Println("Usage: graft host [init|clean|sh|self-destruct]")
+			fmt.Println("Usage: graft host [init|clean|sh|self-destruct|db|redis]")
 			return
 		}
 		switch args[1] {
@@ -192,6 +206,18 @@ func main() {
 			e.RunHostShell(args[2:])
 		case "self-destruct":
 			e.RunHostSelfDestruct()
+		case "db":
+			if len(args) < 4 || args[3] != "init" {
+				fmt.Println("Usage: graft host db <name> init")
+				return
+			}
+			e.RunInfraInit("postgres", args[2])
+		case "redis":
+			if len(args) < 4 || args[3] != "init" {
+				fmt.Println("Usage: graft host redis <name> init")
+				return
+			}
+			e.RunInfraInit("redis", args[2])
 		default:
 			e.RunHostDocker(args[1:])
 		}
@@ -289,11 +315,11 @@ func main() {
 		}
 		e.RunScale(args[1], n)
 	case "psql":
-		var dbname string
-		if len(args) > 1 {
-			dbname = args[1]
+		var dbOverride string
+		if meta, err := config.LoadProjectMetadata(e.Env); err == nil && meta != nil && meta.Database != "" {
+			dbOverride = meta.Database
 		}
-		e.RunPsql(dbname)
+		e.RunPsql(dbOverride, args[1:])
 	case "mode":
 		e.RunMode()
 	case "map":
@@ -349,7 +375,8 @@ func printUsage() {
 	fmt.Println("  infra [db|redis] ports:<v> Change infra port mapping (null to hide)")
 	fmt.Println("  infra db backup           Setup automated database backups to S3")
 	fmt.Println("  infra reload              Pull and reload infrastructure services")
-	fmt.Println("  db/redis <name> init      Initialize shared infrastructure")
+	fmt.Println("  db/redis <name> init      Initialize shared infrastructure (dedicated credentials per db)")
+	fmt.Println("  -r <name> db <n> init     Initialize database on a specific registry server")
 	fmt.Println("  sync [service] [-h]       Deploy project to server")
 	fmt.Println("  rollback                  Restore project to a previous backup")
 	fmt.Println("  rollback service <name>   Restore specific service from a backup")
@@ -359,8 +386,7 @@ func printUsage() {
 	fmt.Println("  env --new <name>          Create a new deployment environment")
 	fmt.Println("  env <name> <command>      Run a command in a specific environment context")
 	fmt.Println("  scale <service> <n>       Scale a service to N replicas via Traefik load balancing (1 = remove replicas)")
-	fmt.Println("  psql [dbname]             Open interactive psql session on infra postgres")
-	fmt.Println("  -r <name> psql [dbname]   Open psql session on a specific registry server")
+	fmt.Println("  psql [dbname] [-c \"cmd\"]   Open psql session or run one-off SQL on infra postgres")
 	fmt.Println("  mode                      Change project deployment mode")
 	fmt.Println("  map                       Map all service domains to Cloudflare DNS")
 	fmt.Println("  map service <name>        Map specific service domain to Cloudflare DNS")

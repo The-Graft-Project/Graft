@@ -229,6 +229,7 @@ type ProjectMetadata struct {
 	GitBranch       string         `json:"git_branch,omitempty"`
 	RollbackBackups int            `json:"rollback_backups,omitempty"`
 	Scale           map[string]int `json:"scale,omitempty"`
+	Database        string         `json:"database,omitempty"`
 }
 type ProjectEnv struct {
 	Name            string `json:"name"`
