@@ -28,6 +28,32 @@ func (e *Executor) RunInfraInit(typ, name string) {
 	}
 	defer client.Close()
 
+	// Check if infra is initialized on the remote server
+	tmpCheck := filepath.Join(os.TempDir(), "infra_check.config")
+	if err := client.DownloadFile(config.RemoteInfraPath, tmpCheck); err != nil {
+		os.Remove(tmpCheck)
+		fmt.Printf("⚠️  Infrastructure (%s) is not initialized on this server.\n", typ)
+		fmt.Print("Run 'graft host init' to set up infrastructure first? (y/n): ")
+		reader := bufio.NewReader(os.Stdin)
+		confirm, _ := reader.ReadString('\n')
+		confirm = strings.ToLower(strings.TrimSpace(confirm))
+		if confirm == "y" || confirm == "yes" {
+			e.RunHostInit()
+			// Re-connect after host init since client was closed
+			client, err = e.getClient()
+			if err != nil {
+				fmt.Printf("Error reconnecting: %v\n", err)
+				return
+			}
+			defer client.Close()
+		} else {
+			fmt.Println("Aborted. Run 'graft host init' before creating databases.")
+			return
+		}
+	} else {
+		os.Remove(tmpCheck)
+	}
+
 	var url string
 	if typ == "postgres" {
 		url, err = infra.InitPostgres(client, name, os.Stdout, os.Stderr)
