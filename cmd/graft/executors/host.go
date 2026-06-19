@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
@@ -281,6 +282,78 @@ func (e *Executor) RunHostShell(commandArgs []string) {
 		if err := client.RunCommand(cmdStr, os.Stdout, os.Stderr); err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
+	}
+}
+
+func (e *Executor) RunTunnel(container string, localPort int) {
+	client, err := e.getClient()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	// Check container exists and get its IP
+	containerIP, err := client.GetCommandOutput(
+		fmt.Sprintf("sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' %s", container))
+	if err != nil || strings.TrimSpace(containerIP) == "" {
+		fmt.Printf("Error: Container '%s' not found or not running.\n", container)
+		return
+	}
+	containerIP = strings.TrimSpace(containerIP)
+
+	// Auto-detect exposed ports
+	portsRaw, err := client.GetCommandOutput(
+		fmt.Sprintf("sudo docker inspect -f '{{range $p, $conf := .Config.ExposedPorts}}{{$p}} {{end}}' %s", container))
+	if err != nil || strings.TrimSpace(portsRaw) == "" {
+		fmt.Printf("Error: Could not detect exposed ports for '%s'.\n", container)
+		return
+	}
+
+	// Parse ports — format is "5432/tcp 8080/tcp ..."
+	var ports []int
+	for _, p := range strings.Fields(strings.TrimSpace(portsRaw)) {
+		parts := strings.Split(p, "/")
+		if len(parts) > 0 {
+			if port, err := strconv.Atoi(parts[0]); err == nil {
+				ports = append(ports, port)
+			}
+		}
+	}
+
+	if len(ports) == 0 {
+		fmt.Printf("Error: No exposed ports found for '%s'.\n", container)
+		return
+	}
+
+	remotePort := ports[0]
+	if len(ports) > 1 {
+		fmt.Printf("📋 Container '%s' exposes multiple ports:\n", container)
+		for i, p := range ports {
+			fmt.Printf("  [%d] %d\n", i+1, p)
+		}
+		fmt.Print("Select port: ")
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+		idx, err := strconv.Atoi(input)
+		if err != nil || idx < 1 || idx > len(ports) {
+			fmt.Println("Invalid selection.")
+			return
+		}
+		remotePort = ports[idx-1]
+	}
+
+	if localPort == 0 {
+		localPort = remotePort
+	}
+
+	fmt.Printf("🔗 Tunneling %s:%d → localhost:%d\n", container, remotePort, localPort)
+	fmt.Printf("   Connect to localhost:%d to reach the service.\n", localPort)
+	fmt.Println("\nPress Ctrl+C to stop the tunnel.")
+
+	if err := client.Tunnel(localPort, containerIP, remotePort); err != nil {
+		fmt.Printf("\nTunnel error: %v\n", err)
 	}
 }
 

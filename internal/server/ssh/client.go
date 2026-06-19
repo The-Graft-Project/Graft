@@ -3,6 +3,7 @@ package ssh
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -170,6 +171,41 @@ func (c *Client) InteractiveSession() error {
 	cmd.Stderr = os.Stderr
 
 	return cmd.Run()
+}
+
+// Tunnel opens a native Go SSH port-forward: localhost:localPort → remoteHost:remotePort.
+// Uses the already-established SSH connection so it works on all platforms without WSL.
+// Blocks until the user presses Ctrl+C.
+func (c *Client) Tunnel(localPort int, remoteHost string, remotePort int) error {
+	listenAddr := fmt.Sprintf("0.0.0.0:%d", localPort)
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %v", listenAddr, err)
+	}
+	defer listener.Close()
+
+	remoteAddr := fmt.Sprintf("%s:%d", remoteHost, remotePort)
+
+	for {
+		localConn, err := listener.Accept()
+		if err != nil {
+			return err
+		}
+
+		remoteConn, err := c.client.Dial("tcp", remoteAddr)
+		if err != nil {
+			localConn.Close()
+			fmt.Fprintf(os.Stderr, "Remote connection failed: %v\n", err)
+			continue
+		}
+
+		go func() {
+			defer localConn.Close()
+			defer remoteConn.Close()
+			go io.Copy(remoteConn, localConn)
+			io.Copy(localConn, remoteConn)
+		}()
+	}
 }
 
 func (c *Client) RunInteractiveCommand(cmd string) error {

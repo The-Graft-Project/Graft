@@ -22,7 +22,7 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.5.2")
+			fmt.Println("v2.5.4")
 			return
 		}
 		if arg == "--help" {
@@ -64,22 +64,61 @@ func main() {
 			e.RunPsql("", args[1:])
 			return
 		}
-		// Handle db/redis init on registry: graft -r name db <dbname> init
+		// Handle db/redis on registry: graft -r name db <dbname> [init|serve]
 		if len(args) > 0 && (args[0] == "db" || args[0] == "redis") {
 			gCfg, _ := config.LoadGlobalConfig()
 			if gCfg != nil {
 				srv := gCfg.Servers[registryContext]
 				e.Server = &srv
 			}
-			typ := "postgres"
-			if args[0] == "redis" {
-				typ = "redis"
-			}
-			if len(args) < 3 || args[2] != "init" {
-				fmt.Printf("Usage: graft -r <registry> %s <name> init\n", args[0])
+			if len(args) < 3 {
+				fmt.Printf("Usage: graft -r <registry> %s <name> [init|serve]\n", args[0])
 				return
 			}
-			e.RunInfraInit(typ, args[1])
+			switch args[2] {
+			case "init":
+				typ := "postgres"
+				if args[0] == "redis" {
+					typ = "redis"
+				}
+				e.RunInfraInit(typ, args[1])
+			case "serve":
+				if args[0] == "redis" {
+					fmt.Println("Error: serve is only supported for postgres databases.")
+					return
+				}
+				port := 5432
+				if len(args) > 3 {
+					p, err := strconv.Atoi(strings.TrimPrefix(args[3], ":"))
+					if err == nil && p > 0 {
+						port = p
+					}
+				}
+				e.RunDbServe(args[1], port)
+			default:
+				fmt.Printf("Usage: graft -r <registry> %s <name> [init|serve]\n", args[0])
+			}
+			return
+		}
+		// Handle tunnel on registry: graft -r name tunnel <container> [:localport]
+		if len(args) > 0 && args[0] == "tunnel" {
+			gCfg, _ := config.LoadGlobalConfig()
+			if gCfg != nil {
+				srv := gCfg.Servers[registryContext]
+				e.Server = &srv
+			}
+			if len(args) < 2 {
+				fmt.Println("Usage: graft -r <registry> tunnel <container> [:localport]")
+				return
+			}
+			port := 0
+			if len(args) > 2 {
+				p, err := strconv.Atoi(strings.TrimPrefix(args[2], ":"))
+				if err == nil && p > 0 {
+					port = p
+				}
+			}
+			e.RunTunnel(args[1], port)
 			return
 		}
 		// Handle shell directly after -r: graft -r name -sh ...
@@ -207,26 +246,73 @@ func main() {
 		case "self-destruct":
 			e.RunHostSelfDestruct()
 		case "db":
-			if len(args) < 4 || args[3] != "init" {
-				fmt.Println("Usage: graft host db <name> init")
+			if len(args) < 4 {
+				fmt.Println("Usage: graft host db <name> [init|serve]")
 				return
 			}
-			e.RunInfraInit("postgres", args[2])
+			switch args[3] {
+			case "init":
+				e.RunInfraInit("postgres", args[2])
+			case "serve":
+				port := 5432
+				if len(args) > 4 {
+					p, err := strconv.Atoi(strings.TrimPrefix(args[4], ":"))
+					if err == nil && p > 0 {
+						port = p
+					}
+				}
+				e.RunDbServe(args[2], port)
+			default:
+				fmt.Println("Usage: graft host db <name> [init|serve]")
+			}
 		case "redis":
 			if len(args) < 4 || args[3] != "init" {
 				fmt.Println("Usage: graft host redis <name> init")
 				return
 			}
 			e.RunInfraInit("redis", args[2])
+		case "tunnel":
+			if len(args) < 3 {
+				fmt.Println("Usage: graft host tunnel <container> [:localport]")
+				return
+			}
+			port := 0
+			if len(args) > 3 {
+				p, err := strconv.Atoi(strings.TrimPrefix(args[3], ":"))
+				if err == nil && p > 0 {
+					port = p
+				}
+			}
+			e.RunTunnel(args[2], port)
 		default:
 			e.RunHostDocker(args[1:])
 		}
 	case "db":
-		if len(args) < 3 || args[2] != "init" {
+		if len(args) < 3 {
 			fmt.Println("Usage: graft db <name> init")
+			fmt.Println("       graft db <name> serve [:port]")
 			return
 		}
-		e.RunInfraInit("postgres", args[1])
+		switch args[2] {
+		case "init":
+			e.RunInfraInit("postgres", args[1])
+		case "serve":
+			port := 5432
+			if len(args) > 3 {
+				p, err := strconv.Atoi(strings.TrimPrefix(args[3], ":"))
+				if err == nil && p > 0 {
+					port = p
+				}
+			}
+			var dbOverride string
+			if meta, err := config.LoadProjectMetadata(e.Env); err == nil && meta != nil && meta.Database != "" {
+				dbOverride = meta.Database
+			}
+			e.RunDbServe(dbOverride, port)
+		default:
+			fmt.Println("Usage: graft db <name> init")
+			fmt.Println("       graft db <name> serve [:port]")
+		}
 	case "redis":
 		if len(args) < 3 || args[2] != "init" {
 			fmt.Println("Usage: graft redis <name> init")
@@ -375,8 +461,9 @@ func printUsage() {
 	fmt.Println("  infra [db|redis] ports:<v> Change infra port mapping (null to hide)")
 	fmt.Println("  infra db backup           Setup automated database backups to S3")
 	fmt.Println("  infra reload              Pull and reload infrastructure services")
-	fmt.Println("  db/redis <name> init      Initialize shared infrastructure (dedicated credentials per db)")
-	fmt.Println("  -r <name> db <n> init     Initialize database on a specific registry server")
+	fmt.Println("  db <name> init            Initialize postgres database (dedicated credentials per db)")
+	fmt.Println("  db <name> serve [:port]   Tunnel remote postgres to localhost via SSH (default :5432)")
+	fmt.Println("  redis <name> init         Initialize redis database")
 	fmt.Println("  sync [service] [-h]       Deploy project to server")
 	fmt.Println("  rollback                  Restore project to a previous backup")
 	fmt.Println("  rollback service <name>   Restore specific service from a backup")
@@ -386,7 +473,8 @@ func printUsage() {
 	fmt.Println("  env --new <name>          Create a new deployment environment")
 	fmt.Println("  env <name> <command>      Run a command in a specific environment context")
 	fmt.Println("  scale <service> <n>       Scale a service to N replicas via Traefik load balancing (1 = remove replicas)")
-	fmt.Println("  psql [dbname] [-c \"cmd\"]   Open psql session or run one-off SQL on infra postgres")
+	fmt.Println("  host tunnel <c> [:port]   Tunnel any Docker container to localhost via SSH")
+	fmt.Println("  psql [-c \"cmd\"]           Open psql session or run one-off SQL on infra postgres")
 	fmt.Println("  mode                      Change project deployment mode")
 	fmt.Println("  map                       Map all service domains to Cloudflare DNS")
 	fmt.Println("  map service <name>        Map specific service domain to Cloudflare DNS")
