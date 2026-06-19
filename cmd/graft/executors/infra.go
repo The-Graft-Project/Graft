@@ -238,6 +238,83 @@ func (e *Executor) RunInfra(args []string) {
 	fmt.Println("\n✅ Infrastructure updated successfully!")
 }
 
+// RunDbServe opens an SSH tunnel from localhost:localPort to the remote graft-postgres:5432.
+// dbOverride: when non-empty, uses that db name. When empty, uses master db.
+func (e *Executor) RunDbServe(dbOverride string, localPort int) {
+	client, err := e.getClient()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer client.Close()
+
+	// Fetch infra credentials to verify postgres is configured
+	tmpFile := filepath.Join(os.TempDir(), "serve_infra.config")
+	defer os.Remove(tmpFile)
+
+	if err := client.DownloadFile(config.RemoteInfraPath, tmpFile); err != nil {
+		fmt.Println("Error: Could not fetch infra config from remote server.")
+		fmt.Println("Make sure infrastructure has been initialized with 'graft host init'")
+		return
+	}
+
+	data, err := os.ReadFile(tmpFile)
+	if err != nil {
+		fmt.Printf("Error reading infra config: %v\n", err)
+		return
+	}
+
+	var infraCfg config.InfraConfig
+	if err := json.Unmarshal(data, &infraCfg); err != nil {
+		fmt.Printf("Error parsing infra config: %v\n", err)
+		return
+	}
+
+	if infraCfg.PostgresUser == "" {
+		fmt.Println("Error: Postgres is not configured on this host. Run 'graft host init' to set it up.")
+		return
+	}
+
+	dbname := dbOverride
+	if dbname == "" {
+		dbname = infraCfg.PostgresDB
+	}
+
+	// Try to find dedicated credentials from local secrets
+	secretsHint := ""
+	secrets, _ := config.LoadSecrets()
+	secretKey := fmt.Sprintf("GRAFT_POSTGRES_%s_URL", strings.ToUpper(dbname))
+	if url, ok := secrets[secretKey]; ok {
+		secretsHint = fmt.Sprintf("   %s (from .graft/secrets.env)\n", strings.Replace(url, "graft-postgres:5432", fmt.Sprintf("localhost:%d", localPort), 1))
+	}
+
+	// Get the container IP — port may not be mapped to host
+	containerIP, err := client.GetCommandOutput("sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' graft-postgres")
+	if err != nil || strings.TrimSpace(containerIP) == "" {
+		fmt.Println("Error: Could not find graft-postgres container. Is it running?")
+		fmt.Println("Try: graft host init")
+		return
+	}
+	containerIP = strings.TrimSpace(containerIP)
+
+	fmt.Printf("🔗 Tunneling remote postgres to localhost:%d...\n", localPort)
+	fmt.Printf("\n📋 Connection details:\n")
+	fmt.Printf("   Host:     localhost\n")
+	fmt.Printf("   Port:     %d\n", localPort)
+	fmt.Printf("   Database: %s\n", dbname)
+	if secretsHint != "" {
+		fmt.Printf("\n📋 Connection string:\n")
+		fmt.Print(secretsHint)
+	} else {
+		fmt.Printf("\n💡 Credentials are in .graft/secrets.env (key: %s)\n", secretKey)
+	}
+	fmt.Println("\nPress Ctrl+C to stop the tunnel.")
+
+	if err := client.Tunnel(localPort, containerIP, 5432); err != nil {
+		fmt.Printf("\nTunnel error: %v\n", err)
+	}
+}
+
 // RunPsql opens a psql session on the infra postgres.
 // dbOverride: when non-empty, used as the database name and all args are treated as psql flags.
 // When empty (registry scope), the first non-flag arg is parsed as dbname, falling back to master.

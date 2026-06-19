@@ -185,6 +185,7 @@ winget:
       - Isolated DB Credentials (Security): Each database gets a dedicated Postgres user and password. Admin credentials never leak to project secrets.
       - Per-Environment Database Linking: Database auto-linked per environment. [graft psql] connects to the right db for the current env.
       - Unified DB Init: Initialize databases from project scope, host scope [graft host db], or registry scope [graft -r <name> db]. All paths prompt to link with overwrite protection.
+      - SSH Database Tunnel: [graft db <name> serve :port] tunnels remote Postgres to localhost via SSH for local dev tools. No public port exposure.
       - Environment Listing: [graft env ls] shows all environments with registry, domain, and mode.
       - Graft SSH Key: Manage SSH keys with [graft pub] and rotate with [graft pub rollout].
       - Cloudflare API Integration: Automated DNS zone mapping based on Traefik host labels.
@@ -260,14 +261,15 @@ release:
   header: |
     ## Feature Update with Graft  🚀
 
-    ### V2.5.2 Highlights:
+    ### V2.5.3 Highlights:
     1. **Service Scaling**: Scale any service to N replicas with `graft scale <service> <n>` — Traefik automatically load balances across them. Scale persists through deploys.
     2. **PSQL Passthrough**: Full psql passthrough with env-aware auto-connect. Supports all native psql flags (`-c`, `-f`, `-t`, etc.).
     3. **Isolated DB Credentials (Security)**: `graft db <name> init` now creates a dedicated Postgres user and password per database. Each project gets scoped credentials — admin credentials never leak to project secrets.
     4. **Per-Environment Database Linking**: Database name stored per environment in project metadata. `graft psql` auto-connects to the correct database for the current env.
     5. **Unified DB Init Across Scopes**: Initialize databases from project scope (`graft db`), host scope (`graft host db`), or registry scope (`graft -r <registry> db`). All paths prompt to link to an environment with overwrite protection.
-    6. **Environment Listing**: `graft env ls` lists all environments with their registry, domain, and deployment mode.
-    7. **Bug Fixes and Improvements**
+    6. **SSH Database Tunnel**: `graft db <name> serve [:port]` tunnels remote Postgres to localhost via SSH — connect with pgAdmin, DBeaver, or your local app. No public port exposure needed.
+    7. **Environment Listing**: `graft env ls` lists all environments with their registry, domain, and deployment mode.
+    8. **Bug Fixes and Improvements**
 
     ### V2 Series Highlights (v2.0 - v2.4):
     1. **Rollback Feature**: Revert to previous deployments with `graft rollback` or `graft rollback service <name>`.
