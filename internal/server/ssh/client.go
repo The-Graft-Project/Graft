@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -140,10 +139,10 @@ func (c *Client) InteractiveSession() error {
 	// Find best ssh command
 	sshCmd, isWSL := findSSH()
 
-	// If on Windows and no WSL, use simulated session as fallback
-	// This avoids the strict file permission requirements of Windows OpenSSH
-	if runtime.GOOS == "windows" && !isWSL {
-		fmt.Println("⚠️  WSL not detected. Using simulated terminal (fallback). Please install WSL to get a better experience.")
+	// No ssh binary available anywhere (native, Windows OpenSSH, or WSL) - fall
+	// back to a Go-native simulated session over the existing connection.
+	if sshCmd == "" {
+		fmt.Println("⚠️  No SSH client found. Using simulated terminal (fallback).")
 		return c.SimulatedSession()
 	}
 

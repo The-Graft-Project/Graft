@@ -64,10 +64,26 @@ func createHostKeyCallback(knownHostsPath, hostname string) ssh.HostKeyCallback 
 	}
 }
 
-// findSSH attempts to find the best SSH client. On Windows, it prefers WSL to avoid permission issues.
+// findSSH attempts to find the best SSH client. Native ssh (including the
+// OpenSSH client built into modern Windows) is preferred since it connects
+// directly with no extra hop. WSL is only used as a fallback on Windows when
+// no native ssh binary is available, since routing through a WSL VM adds
+// cold-boot latency and an extra virtualized network hop that can cause
+// connections to silently stall or time out.
 func findSSH() (string, bool) {
-	// Only check for WSL on Windows
+	// Try standard ssh on PATH (covers native Windows OpenSSH, Git Bash, macOS, Linux)
+	if path, err := exec.LookPath("ssh"); err == nil {
+		return path, false
+	}
+
+	// Windows OpenSSH may not be on PATH even though it's installed
 	if runtime.GOOS == "windows" {
+		winSSH := filepath.Join(os.Getenv("WINDIR"), "System32", "OpenSSH", "ssh.exe")
+		if _, err := os.Stat(winSSH); err == nil {
+			return winSSH, false
+		}
+
+		// Last resort: WSL
 		if _, err := exec.LookPath("wsl"); err == nil {
 			cmd := exec.Command("wsl", "which", "ssh")
 			if err := cmd.Run(); err == nil {
@@ -76,12 +92,7 @@ func findSSH() (string, bool) {
 		}
 	}
 
-	// Try standard ssh
-	if path, err := exec.LookPath("ssh"); err == nil {
-		return path, false
-	}
-
-	return "ssh", false
+	return "", false
 }
 
 // parseGitignore reads a .gitignore file and returns rsync-compatible exclude patterns
