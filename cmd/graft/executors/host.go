@@ -285,7 +285,10 @@ func (e *Executor) RunHostShell(commandArgs []string) {
 	}
 }
 
-func (e *Executor) RunTunnel(container string, localPort int) {
+// RunTunnel tunnels a Docker container's port to localhost.
+// remotePort: the container port to tunnel; 0 auto-detects from exposed ports
+// (prompting if there are several). localPort: the local port to bind; 0 uses remotePort.
+func (e *Executor) RunTunnel(container string, remotePort int, localPort int) {
 	client, err := e.getClient()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -302,46 +305,48 @@ func (e *Executor) RunTunnel(container string, localPort int) {
 	}
 	containerIP = strings.TrimSpace(containerIP)
 
-	// Auto-detect exposed ports
-	portsRaw, err := client.GetCommandOutput(
-		fmt.Sprintf("sudo docker inspect -f '{{range $p, $conf := .Config.ExposedPorts}}{{$p}} {{end}}' %s", container))
-	if err != nil || strings.TrimSpace(portsRaw) == "" {
-		fmt.Printf("Error: Could not detect exposed ports for '%s'.\n", container)
-		return
-	}
-
-	// Parse ports — format is "5432/tcp 8080/tcp ..."
-	var ports []int
-	for _, p := range strings.Fields(strings.TrimSpace(portsRaw)) {
-		parts := strings.Split(p, "/")
-		if len(parts) > 0 {
-			if port, err := strconv.Atoi(parts[0]); err == nil {
-				ports = append(ports, port)
-			}
-		}
-	}
-
-	if len(ports) == 0 {
-		fmt.Printf("Error: No exposed ports found for '%s'.\n", container)
-		return
-	}
-
-	remotePort := ports[0]
-	if len(ports) > 1 {
-		fmt.Printf("📋 Container '%s' exposes multiple ports:\n", container)
-		for i, p := range ports {
-			fmt.Printf("  [%d] %d\n", i+1, p)
-		}
-		fmt.Print("Select port: ")
-		reader := bufio.NewReader(os.Stdin)
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-		idx, err := strconv.Atoi(input)
-		if err != nil || idx < 1 || idx > len(ports) {
-			fmt.Println("Invalid selection.")
+	if remotePort == 0 {
+		// Auto-detect exposed ports
+		portsRaw, err := client.GetCommandOutput(
+			fmt.Sprintf("sudo docker inspect -f '{{range $p, $conf := .Config.ExposedPorts}}{{$p}} {{end}}' %s", container))
+		if err != nil || strings.TrimSpace(portsRaw) == "" {
+			fmt.Printf("Error: Could not detect exposed ports for '%s'.\n", container)
 			return
 		}
-		remotePort = ports[idx-1]
+
+		// Parse ports — format is "5432/tcp 8080/tcp ..."
+		var ports []int
+		for _, p := range strings.Fields(strings.TrimSpace(portsRaw)) {
+			parts := strings.Split(p, "/")
+			if len(parts) > 0 {
+				if port, err := strconv.Atoi(parts[0]); err == nil {
+					ports = append(ports, port)
+				}
+			}
+		}
+
+		if len(ports) == 0 {
+			fmt.Printf("Error: No exposed ports found for '%s'.\n", container)
+			return
+		}
+
+		remotePort = ports[0]
+		if len(ports) > 1 {
+			fmt.Printf("📋 Container '%s' exposes multiple ports:\n", container)
+			for i, p := range ports {
+				fmt.Printf("  [%d] %d\n", i+1, p)
+			}
+			fmt.Print("Select port (or rerun with -p <port>:<localport>): ")
+			reader := bufio.NewReader(os.Stdin)
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			idx, err := strconv.Atoi(input)
+			if err != nil || idx < 1 || idx > len(ports) {
+				fmt.Println("Invalid selection.")
+				return
+			}
+			remotePort = ports[idx-1]
+		}
 	}
 
 	if localPort == 0 {

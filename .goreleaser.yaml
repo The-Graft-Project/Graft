@@ -270,8 +270,9 @@ release:
     5. **Unified DB Init Across Scopes**: Initialize databases from project scope (`graft db`), host scope (`graft host db`), or registry scope (`graft -r <registry> db`). All paths prompt to link to an environment with overwrite protection.
     6. **SSH Database Tunnel**: `graft db <name> serve [:port]` tunnels remote Postgres to localhost via SSH — connect with pgAdmin, DBeaver, or your local app. No public port exposure needed.
     7. **Generic Service Tunnel**: `graft host tunnel <container> [:port]` tunnels any Docker container to localhost. Auto-detects exposed ports. Works with any protocol — HTTP, Postgres, Redis, gRPC.
-    8. **Environment Listing**: `graft env ls` lists all environments with their registry, domain, and deployment mode.
-    9. **Bug Fixes and Improvements**
+    8.**Port Tunneling**:`graft -r <reg> tunnel -p [serverport:localport] tunnels any port to localhost`
+    9. **Environment Listing**: `graft env ls` lists all environments with their registry, domain, and deployment mode.
+    10. **Bug Fixes and Improvements**
 
     ### V2 Series Highlights (v2.0 - v2.4):
     1. **Rollback Feature**: Revert to previous deployments with `graft rollback` or `graft rollback service <name>`.

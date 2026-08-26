@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -22,6 +23,8 @@ type Client struct {
 	port    int
 	user    string
 	keyPath string
+
+	mu sync.RWMutex
 }
 
 func NewClient(host string, port int, user, keyPath string) (*Client, error) {
@@ -41,7 +44,35 @@ func NewClient(host string, port int, user, keyPath string) (*Client, error) {
 		actualKeyPath = home
 	}
 
-	key, err := os.ReadFile(actualKeyPath)
+	c := &Client{
+		host:    host,
+		port:    port,
+		user:    user,
+		keyPath: actualKeyPath,
+	}
+
+	client, err := c.dial()
+	if err != nil {
+		return nil, err
+	}
+
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("unable to start sftp: %v", err)
+	}
+
+	c.client = client
+	c.sftp = sftpClient
+
+	return c, nil
+}
+
+// dial establishes a fresh SSH connection using the client's stored credentials.
+// It does not touch c.client/c.sftp, so it is safe to call while the existing
+// connection is still in use (e.g. to test reconnection before swapping over).
+func (c *Client) dial() (*ssh.Client, error) {
+	key, err := os.ReadFile(c.keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read private key: %v", err)
 	}
@@ -57,10 +88,10 @@ func NewClient(host string, port int, user, keyPath string) (*Client, error) {
 	}
 
 	knownHostsPath := filepath.Join(homeDir, ".ssh", "known_hosts")
-	hostKeyCallback := createHostKeyCallback(knownHostsPath, host)
+	hostKeyCallback := createHostKeyCallback(knownHostsPath, c.host)
 
 	config := &ssh.ClientConfig{
-		User: user,
+		User: c.user,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
@@ -68,26 +99,81 @@ func NewClient(host string, port int, user, keyPath string) (*Client, error) {
 		Timeout:         10 * time.Second,
 	}
 
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := fmt.Sprintf("%s:%d", c.host, c.port)
 	client, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect: %v", err)
 	}
+	return client, nil
+}
 
-	sftpClient, err := sftp.NewClient(client)
-	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("unable to start sftp: %v", err)
+// sshClient returns the currently active SSH connection.
+func (c *Client) sshClient() *ssh.Client {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.client
+}
+
+// isAlive checks whether the active SSH connection is still usable.
+func (c *Client) isAlive() bool {
+	client := c.sshClient()
+	if client == nil {
+		return false
 	}
+	_, _, err := client.SendRequest("graft-keepalive@graft", true, nil)
+	return err == nil
+}
 
-	return &Client{
-		client:  client,
-		sftp:    sftpClient,
-		host:    host,
-		port:    port,
-		user:    user,
-		keyPath: actualKeyPath,
-	}, nil
+// reconnect re-establishes the SSH connection, replacing the active one.
+func (c *Client) reconnect() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	newClient, err := c.dial()
+	if err != nil {
+		return err
+	}
+	if c.client != nil {
+		c.client.Close()
+	}
+	c.client = newClient
+	return nil
+}
+
+// healLoop periodically checks the SSH connection and reconnects with backoff
+// if it has dropped, so long-running tunnels survive network blips.
+func (c *Client) healLoop(stop <-chan struct{}) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			if c.isAlive() {
+				continue
+			}
+			fmt.Fprintln(os.Stderr, "\n⚠️  Connection lost, attempting to reconnect...")
+			backoff := time.Second
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if err := c.reconnect(); err != nil {
+					time.Sleep(backoff)
+					if backoff < 30*time.Second {
+						backoff *= 2
+					}
+					continue
+				}
+				fmt.Fprintln(os.Stderr, "✅ Reconnected.")
+				break
+			}
+		}
+	}
 }
 
 func (c *Client) RunCommand(cmd string, stdout, stderr io.Writer) error {
@@ -174,6 +260,8 @@ func (c *Client) InteractiveSession() error {
 
 // Tunnel opens a native Go SSH port-forward: localhost:localPort → remoteHost:remotePort.
 // Uses the already-established SSH connection so it works on all platforms without WSL.
+// The underlying SSH connection is self-healing: if it drops (e.g. a network blip),
+// it is transparently reconnected without tearing down the local listener.
 // Blocks until the user presses Ctrl+C.
 func (c *Client) Tunnel(localPort int, remoteHost string, remotePort int) error {
 	listenAddr := fmt.Sprintf("0.0.0.0:%d", localPort)
@@ -183,6 +271,10 @@ func (c *Client) Tunnel(localPort int, remoteHost string, remotePort int) error 
 	}
 	defer listener.Close()
 
+	stop := make(chan struct{})
+	defer close(stop)
+	go c.healLoop(stop)
+
 	remoteAddr := fmt.Sprintf("%s:%d", remoteHost, remotePort)
 
 	for {
@@ -191,20 +283,44 @@ func (c *Client) Tunnel(localPort int, remoteHost string, remotePort int) error 
 			return err
 		}
 
-		remoteConn, err := c.client.Dial("tcp", remoteAddr)
-		if err != nil {
-			localConn.Close()
-			fmt.Fprintf(os.Stderr, "Remote connection failed: %v\n", err)
-			continue
-		}
-
-		go func() {
-			defer localConn.Close()
-			defer remoteConn.Close()
-			go io.Copy(remoteConn, localConn)
-			io.Copy(localConn, remoteConn)
-		}()
+		go c.forwardTunnelConn(localConn, remoteAddr)
 	}
+}
+
+// dialRemote dials remoteAddr over the SSH connection, healing it first if it
+// has died and retrying once more after a fresh reconnect.
+func (c *Client) dialRemote(remoteAddr string) (net.Conn, error) {
+	if !c.isAlive() {
+		if err := c.reconnect(); err != nil {
+			return nil, fmt.Errorf("ssh connection down, reconnect failed: %v", err)
+		}
+		fmt.Fprintln(os.Stderr, "✅ Reconnected.")
+	}
+
+	conn, err := c.sshClient().Dial("tcp", remoteAddr)
+	if err == nil {
+		return conn, nil
+	}
+
+	if rerr := c.reconnect(); rerr != nil {
+		return nil, err
+	}
+	fmt.Fprintln(os.Stderr, "✅ Reconnected.")
+	return c.sshClient().Dial("tcp", remoteAddr)
+}
+
+func (c *Client) forwardTunnelConn(localConn net.Conn, remoteAddr string) {
+	remoteConn, err := c.dialRemote(remoteAddr)
+	if err != nil {
+		localConn.Close()
+		fmt.Fprintf(os.Stderr, "Remote connection failed: %v\n", err)
+		return
+	}
+
+	defer localConn.Close()
+	defer remoteConn.Close()
+	go io.Copy(remoteConn, localConn)
+	io.Copy(localConn, remoteConn)
 }
 
 func (c *Client) RunInteractiveCommand(cmd string) error {
@@ -486,6 +602,9 @@ func (c *Client) PullRsync(remoteDir, localDir string, stdout, stderr io.Writer)
 }
 
 func (c *Client) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.sftp != nil {
 		c.sftp.Close()
 	}
