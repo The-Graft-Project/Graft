@@ -13,13 +13,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-func createHostKeyCallback(knownHostsPath, hostname string) ssh.HostKeyCallback {
+func createHostKeyCallback(knownHostsPath, hostname string, port int) ssh.HostKeyCallback {
 	return func(host string, remote net.Addr, key ssh.PublicKey) error {
 		// Ensure .ssh directory exists
 		sshDir := filepath.Dir(knownHostsPath)
@@ -27,34 +28,45 @@ func createHostKeyCallback(knownHostsPath, hostname string) ssh.HostKeyCallback 
 			return fmt.Errorf("could not create .ssh directory: %v", err)
 		}
 
-		// Try to load existing known_hosts
-		kh, err := knownhosts.New(knownHostsPath)
-		if err == nil {
-			// known_hosts exists, check if host is known
-			err := kh(host, remote, key)
-			if err == nil {
-				// Host key matches
-				return nil
-			}
-
-			// Check if it's just "host key not found" vs "host key mismatch"
-			var keyErr *knownhosts.KeyError
-			if errors.As(err, &keyErr) && len(keyErr.Want) > 0 {
-				// Host exists but key doesn't match - SECURITY WARNING
-				return fmt.Errorf("WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key for %s has changed. This could indicate a man-in-the-middle attack.\nTo fix: ssh-keygen -R %s", hostname, hostname)
-			}
-			// Host not found, will add below
+		// knownhosts.New fails on a missing file, so make sure one exists
+		// before parsing. A first run then reads an empty (valid) file.
+		if f, err := os.OpenFile(knownHostsPath, os.O_CREATE, 0600); err == nil {
+			f.Close()
 		}
 
-		// Host not in known_hosts - add it
+		kh, err := knownhosts.New(knownHostsPath)
+		if err != nil {
+			// A file we cannot parse must be reported. Falling through to
+			// "record it anyway" would silently disable host key checking.
+			return fmt.Errorf("could not parse %s: %v\nTo fix: repair or remove that file", knownHostsPath, err)
+		}
+
+		lookupErr := kh(host, remote, key)
+		if lookupErr == nil {
+			// Host key is known and matches.
+			return nil
+		}
+
+		var keyErr *knownhosts.KeyError
+		if !errors.As(lookupErr, &keyErr) {
+			return lookupErr
+		}
+		if len(keyErr.Want) > 0 {
+			// Host is known but the key changed - SECURITY WARNING
+			return fmt.Errorf("WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key for %s has changed. This could indicate a man-in-the-middle attack.\nTo fix: ssh-keygen -R %s", hostname, knownHostsEntry(hostname, port))
+		}
+
+		// Host not in known_hosts - record it.
 		f, err := os.OpenFile(knownHostsPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 		if err != nil {
 			return fmt.Errorf("could not open known_hosts: %v", err)
 		}
 		defer f.Close()
 
-		// Write the host key
-		line := knownhosts.Line([]string{hostname}, key)
+		// Write the entry in the same normalized form the lookup above uses,
+		// otherwise a non-default port never matches and every connection
+		// appends another duplicate.
+		line := knownhosts.Line([]string{knownHostsEntry(hostname, port)}, key)
 		if _, err := fmt.Fprintf(f, "%s\n", line); err != nil {
 			return fmt.Errorf("could not write to known_hosts: %v", err)
 		}
@@ -62,6 +74,12 @@ func createHostKeyCallback(knownHostsPath, hostname string) ssh.HostKeyCallback 
 		fmt.Printf("✓ Added %s to known_hosts\n", hostname)
 		return nil
 	}
+}
+
+// knownHostsEntry renders host/port the way known_hosts stores it: a bare
+// hostname on port 22, and "[host]:port" on any other port.
+func knownHostsEntry(hostname string, port int) string {
+	return knownhosts.Normalize(net.JoinHostPort(hostname, strconv.Itoa(port)))
 }
 
 // findSSH attempts to find the best SSH client. Native ssh (including the

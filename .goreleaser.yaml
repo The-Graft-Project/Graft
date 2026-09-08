@@ -187,6 +187,9 @@ winget:
       - Unified DB Init: Initialize databases from project scope, host scope [graft host db], or registry scope [graft -r <name> db]. All paths prompt to link with overwrite protection.
       - SSH Database Tunnel: [graft db <name> serve :port] tunnels remote Postgres to localhost via SSH for local dev tools. No public port exposure.
       - Generic Service Tunnel: [graft host tunnel <container> :port] tunnels any Docker container to localhost. Auto-detects exposed ports.
+      - SSH Connection Reliability: Multiple concurrent sessions and tunnels no longer hang. The liveness probe, SSH handshake and authentication, channel opens, and SFTP startup are all bounded by timeouts, so a half-dead connection fails fast and self-heals instead of blocking forever.
+      - Faster Connections: SFTP starts only when a command actually transfers files, and tunnels no longer spend a network round trip probing liveness before each forwarded connection.
+      - known_hosts Correctness (Security): Non-default ports are recorded in the format the lookup uses, so repeat connections stop appending duplicates. An unreadable known_hosts is reported instead of silently skipping host key verification.
       - Environment Listing: [graft env ls] shows all environments with registry, domain, and mode.
       - Graft SSH Key: Manage SSH keys with [graft pub] and rotate with [graft pub rollout].
       - Cloudflare API Integration: Automated DNS zone mapping based on Traefik host labels.
@@ -272,7 +275,10 @@ release:
     7. **Generic Service Tunnel**: `graft host tunnel <container> [:port]` tunnels any Docker container to localhost. Auto-detects exposed ports. Works with any protocol — HTTP, Postgres, Redis, gRPC.
     8.**Port Tunneling**:`graft -r <reg> tunnel -p [serverport:localport] tunnels any port to localhost`
     9. **Environment Listing**: `graft env ls` lists all environments with their registry, domain, and deployment mode.
-    10. **Bug Fixes and Improvements**
+    10. **SSH Connection Reliability**: Multiple concurrent sessions and tunnels no longer hang. Every network step is now bounded by a timeout — the liveness probe, the SSH handshake and authentication, channel opens, and the SFTP subsystem — so a half-dead connection (wifi blip, NAT idle drop, roaming) fails fast and self-heals instead of blocking forever. Previously a single stalled connection could wedge every new tunnel connection and the reconnect loop itself.
+    11. **Faster Connections**: The SFTP subsystem is started only when a command actually transfers files, and tunnels no longer spend a full network round trip probing liveness before each forwarded connection.
+    12. **known_hosts Correctness (Security)**: Hosts on non-default ports are recorded in the format the lookup uses, so repeat connections stop appending duplicate entries. An unreadable `known_hosts` is now reported instead of silently skipping host key verification.
+    13. **Bug Fixes and Improvements**
 
     ### V2 Series Highlights (v2.0 - v2.4):
     1. **Rollback Feature**: Revert to previous deployments with `graft rollback` or `graft rollback service <name>`.

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,22 @@ import (
 	"golang.org/x/term"
 )
 
+// Bounds for every network step that would otherwise block forever. A
+// half-dead TCP connection (wifi blip, NAT idle drop, roaming) stays open but
+// delivers nothing, so any unbounded read on it hangs for good.
+const (
+	// connectTimeout bounds the TCP connect.
+	connectTimeout = 10 * time.Second
+	// handshakeTimeout bounds the SSH handshake and authentication, which
+	// ssh.ClientConfig.Timeout does not cover.
+	handshakeTimeout = 20 * time.Second
+	// keepaliveTimeout bounds the liveness probe. A probe that can hang is
+	// not a liveness probe.
+	keepaliveTimeout = 5 * time.Second
+	// channelTimeout bounds opening a new channel (port-forward, sftp).
+	channelTimeout = 15 * time.Second
+)
+
 type Client struct {
 	client  *ssh.Client
 	sftp    *sftp.Client
@@ -23,6 +40,10 @@ type Client struct {
 	port    int
 	user    string
 	keyPath string
+
+	// knownHostsPath overrides the default ~/.ssh/known_hosts. Empty means
+	// the default; tests set it to stay out of the real home directory.
+	knownHostsPath string
 
 	mu sync.RWMutex
 }
@@ -56,14 +77,11 @@ func NewClient(host string, port int, user, keyPath string) (*Client, error) {
 		return nil, err
 	}
 
-	sftpClient, err := sftp.NewClient(client)
-	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("unable to start sftp: %v", err)
-	}
-
+	// The sftp subsystem is started lazily by sftpClient(). Most commands
+	// (shell, tunnel, docker) never transfer files, and opening the channel
+	// eagerly cost every invocation an extra round trip and an extra channel
+	// against the server's MaxSessions.
 	c.client = client
-	c.sftp = sftpClient
 
 	return c, nil
 }
@@ -82,13 +100,15 @@ func (c *Client) dial() (*ssh.Client, error) {
 		return nil, fmt.Errorf("unable to parse private key: %v", err)
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get home directory: %v", err)
+	knownHostsPath := c.knownHostsPath
+	if knownHostsPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get home directory: %v", err)
+		}
+		knownHostsPath = filepath.Join(homeDir, ".ssh", "known_hosts")
 	}
-
-	knownHostsPath := filepath.Join(homeDir, ".ssh", "known_hosts")
-	hostKeyCallback := createHostKeyCallback(knownHostsPath, c.host)
+	hostKeyCallback := createHostKeyCallback(knownHostsPath, c.host, c.port)
 
 	config := &ssh.ClientConfig{
 		User: c.user,
@@ -96,15 +116,39 @@ func (c *Client) dial() (*ssh.Client, error) {
 			ssh.PublicKeys(signer),
 		},
 		HostKeyCallback: hostKeyCallback,
-		Timeout:         10 * time.Second,
+		Timeout:         connectTimeout,
 	}
 
-	addr := fmt.Sprintf("%s:%d", c.host, c.port)
-	client, err := ssh.Dial("tcp", addr, config)
+	addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
+
+	// ssh.Dial would apply config.Timeout to the TCP connect only, leaving the
+	// handshake and authentication unbounded: a peer that accepts TCP and then
+	// stalls would hang here forever. Drive the two steps separately so a
+	// deadline can cover the handshake as well.
+	conn, err := net.DialTimeout("tcp", addr, connectTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect: %v", err)
 	}
-	return client, nil
+
+	if err := conn.SetDeadline(time.Now().Add(handshakeTimeout)); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("unable to connect: %v", err)
+	}
+
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("unable to connect: %v", err)
+	}
+
+	// The deadline covered the handshake only; leaving it set would break the
+	// long-lived session traffic that follows.
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		sshConn.Close()
+		return nil, fmt.Errorf("unable to connect: %v", err)
+	}
+
+	return ssh.NewClient(sshConn, chans, reqs), nil
 }
 
 // sshClient returns the currently active SSH connection.
@@ -114,26 +158,101 @@ func (c *Client) sshClient() *ssh.Client {
 	return c.client
 }
 
-// isAlive checks whether the active SSH connection is still usable.
+// sftpClient returns the sftp session, starting it on first use.
+func (c *Client) sftpClient() (*sftp.Client, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.sftp != nil {
+		return c.sftp, nil
+	}
+	if c.client == nil {
+		return nil, fmt.Errorf("ssh connection is not established")
+	}
+
+	type result struct {
+		client *sftp.Client
+		err    error
+	}
+	ch := make(chan result, 1)
+	client := c.client
+	go func() {
+		sc, err := sftp.NewClient(client)
+		ch <- result{sc, err}
+	}()
+
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			return nil, fmt.Errorf("unable to start sftp: %v", r.err)
+		}
+		c.sftp = r.client
+		return r.client, nil
+	case <-time.After(channelTimeout):
+		// Reap the session if it turns up after we gave up on it.
+		go func() {
+			if r := <-ch; r.client != nil {
+				r.client.Close()
+			}
+		}()
+		return nil, fmt.Errorf("timed out starting sftp subsystem after %s", channelTimeout)
+	}
+}
+
+// isAlive reports whether the active SSH connection is still usable. The probe
+// is bounded: on a half-dead connection the underlying global request never
+// gets a reply, and an unbounded probe would hang exactly when it is most
+// needed. The abandoned goroutine finishes once the connection is closed.
 func (c *Client) isAlive() bool {
 	client := c.sshClient()
 	if client == nil {
 		return false
 	}
-	_, _, err := client.SendRequest("graft-keepalive@graft", true, nil)
-	return err == nil
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := client.SendRequest("graft-keepalive@graft", true, nil)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(keepaliveTimeout):
+		return false
+	}
 }
 
 // reconnect re-establishes the SSH connection, replacing the active one.
 func (c *Client) reconnect() error {
+	return c.reconnectFrom(c.sshClient())
+}
+
+// reconnectFrom replaces stale with a fresh connection. If the active
+// connection is no longer stale someone else already healed it, so callers
+// racing on the same dead connection produce one reconnect, not one each.
+func (c *Client) reconnectFrom(stale *ssh.Client) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if stale != nil && c.client != nil && c.client != stale {
+		return nil
+	}
 
 	newClient, err := c.dial()
 	if err != nil {
 		return err
 	}
+
+	if c.sftp != nil {
+		// Bound to the old connection; drop it so sftpClient() rebuilds it
+		// against the new one on next use.
+		c.sftp.Close()
+		c.sftp = nil
+	}
 	if c.client != nil {
+		// Closing the old connection also releases any probe still parked on
+		// it inside isAlive.
 		c.client.Close()
 	}
 	c.client = newClient
@@ -177,7 +296,11 @@ func (c *Client) healLoop(stop <-chan struct{}) {
 }
 
 func (c *Client) RunCommand(cmd string, stdout, stderr io.Writer) error {
-	session, err := c.client.NewSession()
+	client := c.sshClient()
+	if client == nil {
+		return fmt.Errorf("ssh connection is not established")
+	}
+	session, err := client.NewSession()
 	if err != nil {
 		return err
 	}
@@ -203,7 +326,11 @@ func (c *Client) UpdateAuthorizedKey(oldPubKey, newPubKey string) error {
 }
 
 func (c *Client) GetCommandOutput(cmd string) (string, error) {
-	session, err := c.client.NewSession()
+	client := c.sshClient()
+	if client == nil {
+		return "", fmt.Errorf("ssh connection is not established")
+	}
+	session, err := client.NewSession()
 	if err != nil {
 		return "", err
 	}
@@ -287,26 +414,56 @@ func (c *Client) Tunnel(localPort int, remoteHost string, remotePort int) error 
 	}
 }
 
-// dialRemote dials remoteAddr over the SSH connection, healing it first if it
-// has died and retrying once more after a fresh reconnect.
+// dialChannel opens a forwarded connection, bounded so a dead-but-open SSH
+// connection cannot park the caller forever waiting for a channel that will
+// never be confirmed.
+func dialChannel(client *ssh.Client, remoteAddr string) (net.Conn, error) {
+	type result struct {
+		conn net.Conn
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		conn, err := client.Dial("tcp", remoteAddr)
+		ch <- result{conn, err}
+	}()
+
+	select {
+	case r := <-ch:
+		return r.conn, r.err
+	case <-time.After(channelTimeout):
+		go func() {
+			if r := <-ch; r.conn != nil {
+				r.conn.Close()
+			}
+		}()
+		return nil, fmt.Errorf("timed out opening channel to %s after %s", remoteAddr, channelTimeout)
+	}
+}
+
+// dialRemote dials remoteAddr over the SSH connection, healing it and retrying
+// once if the attempt fails. It does not probe liveness up front: that cost a
+// full round trip on every forwarded connection, and healLoop already probes
+// in the background.
 func (c *Client) dialRemote(remoteAddr string) (net.Conn, error) {
-	if !c.isAlive() {
-		if err := c.reconnect(); err != nil {
-			return nil, fmt.Errorf("ssh connection down, reconnect failed: %v", err)
+	client := c.sshClient()
+	if client != nil {
+		conn, err := dialChannel(client, remoteAddr)
+		if err == nil {
+			return conn, nil
 		}
-		fmt.Fprintln(os.Stderr, "✅ Reconnected.")
 	}
 
-	conn, err := c.sshClient().Dial("tcp", remoteAddr)
-	if err == nil {
-		return conn, nil
-	}
-
-	if rerr := c.reconnect(); rerr != nil {
-		return nil, err
+	if err := c.reconnectFrom(client); err != nil {
+		return nil, fmt.Errorf("ssh connection down, reconnect failed: %v", err)
 	}
 	fmt.Fprintln(os.Stderr, "✅ Reconnected.")
-	return c.sshClient().Dial("tcp", remoteAddr)
+
+	client = c.sshClient()
+	if client == nil {
+		return nil, fmt.Errorf("ssh connection unavailable")
+	}
+	return dialChannel(client, remoteAddr)
 }
 
 func (c *Client) forwardTunnelConn(localConn net.Conn, remoteAddr string) {
@@ -324,7 +481,11 @@ func (c *Client) forwardTunnelConn(localConn net.Conn, remoteAddr string) {
 }
 
 func (c *Client) RunInteractiveCommand(cmd string) error {
-	session, err := c.client.NewSession()
+	client := c.sshClient()
+	if client == nil {
+		return fmt.Errorf("ssh connection is not established")
+	}
+	session, err := client.NewSession()
 	if err != nil {
 		return err
 	}
@@ -364,7 +525,11 @@ func (c *Client) RunInteractiveCommand(cmd string) error {
 }
 
 func (c *Client) SimulatedSession() error {
-	session, err := c.client.NewSession()
+	client := c.sshClient()
+	if client == nil {
+		return fmt.Errorf("ssh connection is not established")
+	}
+	session, err := client.NewSession()
 	if err != nil {
 		return err
 	}
@@ -416,7 +581,12 @@ func (c *Client) UploadFile(local, remote string) error {
 	}
 	defer src.Close()
 
-	dst, err := c.sftp.Create(remote)
+	sftpClient, err := c.sftpClient()
+	if err != nil {
+		return err
+	}
+
+	dst, err := sftpClient.Create(remote)
 	if err != nil {
 		return err
 	}
@@ -427,7 +597,12 @@ func (c *Client) UploadFile(local, remote string) error {
 }
 
 func (c *Client) DownloadFile(remote, local string) error {
-	src, err := c.sftp.Open(remote)
+	sftpClient, err := c.sftpClient()
+	if err != nil {
+		return err
+	}
+
+	src, err := sftpClient.Open(remote)
 	if err != nil {
 		return err
 	}
