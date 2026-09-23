@@ -265,6 +265,9 @@ release:
   header: |
     ## Feature Update with Graft  🚀
 
+    ### V2.6 Highlights:
+    1. **Security Update**: Upgraded `golang.org/x/crypto` to v0.57.0, resolving GitHub Dependabot alerts in the SSH package (auth bypass via unenforced revocation, permission enforcement bypass, deadlocks, DoS, and panics).
+
     ### V2.5 Highlights:
     1. **Service Scaling**: Scale any service to N replicas with `graft scale <service> <n>` — Traefik automatically load balances across them. Scale persists through deploys.
     2. **PSQL Passthrough**: Full psql passthrough with env-aware auto-connect. Supports all native psql flags (`-c`, `-f`, `-t`, etc.).

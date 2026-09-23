@@ -22,7 +22,7 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.5.8")
+			fmt.Println("v2.6.0")
 			return
 		}
 		if arg == "--help" {
