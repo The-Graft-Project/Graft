@@ -50,8 +50,23 @@ type Cloudflare struct {
 }
 
 type GlobalConfig struct {
+	// Default names the registry that bare commands fall back to when the
+	// current directory holds no project. Empty means no default is set.
+	Default  string                  `json:"default,omitempty"`
 	Servers  map[string]ServerConfig `json:"servers"`
 	Projects map[string]string       `json:"projects"`
+}
+
+// DefaultRegistry returns the configured default registry name, and whether it
+// is set and still points at a registry that exists.
+func (c *GlobalConfig) DefaultRegistry() (string, bool) {
+	if c == nil || c.Default == "" {
+		return "", false
+	}
+	if _, exists := c.Servers[c.Default]; !exists {
+		return c.Default, false
+	}
+	return c.Default, true
 }
 
 func GetGlobalConfigDir() string {

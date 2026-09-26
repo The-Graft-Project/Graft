@@ -78,12 +78,74 @@ func (e *Executor) RunRegistryDel(name string) {
 	}
 
 	delete(gCfg.Servers, name)
+
+	// Do not leave the default pointing at a registry that no longer exists.
+	clearedDefault := false
+	if gCfg.Default == name {
+		gCfg.Default = ""
+		clearedDefault = true
+	}
+
 	if err := config.SaveGlobalConfig(gCfg); err != nil {
 		fmt.Printf("Error saving registry: %v\n", err)
 		return
 	}
 
 	fmt.Printf("✅ Registry '%s' deleted.\n", name)
+	if clearedDefault {
+		fmt.Println("   It was the default registry, so the default is now unset.")
+	}
+}
+
+// RunSetDefaultRegistry marks a registry as the fallback for commands run
+// outside any project directory.
+func (e *Executor) RunSetDefaultRegistry(name string) {
+	gCfg, err := config.LoadGlobalConfig()
+	if err != nil || gCfg == nil {
+		fmt.Println("Error: Could not load global registry.")
+		return
+	}
+
+	srv, exists := gCfg.Servers[name]
+	if !exists {
+		fmt.Printf("Error: Registry '%s' not found.\n", name)
+		if len(gCfg.Servers) > 0 {
+			fmt.Println("\nAvailable registries:")
+			for n := range gCfg.Servers {
+				fmt.Printf("  - %s\n", n)
+			}
+		}
+		return
+	}
+
+	gCfg.Default = name
+	if err := config.SaveGlobalConfig(gCfg); err != nil {
+		fmt.Printf("Error saving registry: %v\n", err)
+		return
+	}
+
+	fmt.Printf("✅ Default registry set to '%s' (%s@%s)\n", name, srv.User, srv.Host)
+	fmt.Println("   Commands run outside a project directory will target this server.")
+}
+
+// RunShowDefaultRegistry reports the current default registry.
+func (e *Executor) RunShowDefaultRegistry() {
+	gCfg, err := config.LoadGlobalConfig()
+	if err != nil || gCfg == nil {
+		fmt.Println("Error: Could not load global registry.")
+		return
+	}
+
+	name, ok := gCfg.DefaultRegistry()
+	switch {
+	case name == "":
+		fmt.Println("No default registry set. Set one with: graft -default <name>")
+	case !ok:
+		fmt.Printf("⚠️  Default registry '%s' no longer exists. Set another with: graft -default <name>\n", name)
+	default:
+		srv := gCfg.Servers[name]
+		fmt.Printf("Default registry: %s (%s@%s)\n", name, srv.User, srv.Host)
+	}
 }
 
 func (e *Executor) RunRegistryShell(registryName string, commandArgs []string) {
@@ -161,12 +223,19 @@ func (e *Executor) RunRegistryLs() {
 	}
 
 	fmt.Println("\n📋 Registered Servers:")
-	fmt.Printf("%-15s %-20s %-10s %-10s\n", "Name", "Host", "User", "Port")
-	fmt.Println(strings.Repeat("-", 60))
+	fmt.Printf("%-15s %-20s %-10s %-10s %s\n", "Name", "Host", "User", "Port", "Default")
+	fmt.Println(strings.Repeat("-", 68))
 	for name, srv := range gCfg.Servers {
-		fmt.Printf("%-15s %-20s %-10s %-10d\n", name, srv.Host, srv.User, srv.Port)
+		marker := ""
+		if name == gCfg.Default {
+			marker = "*"
+		}
+		fmt.Printf("%-15s %-20s %-10s %-10d %s\n", name, srv.Host, srv.User, srv.Port, marker)
 	}
 	fmt.Println()
+	if name, ok := gCfg.DefaultRegistry(); ok {
+		fmt.Printf("* default registry: commands run outside a project target '%s'\n\n", name)
+	}
 }
 
 func (e *Executor) RunProjectsLs(registryName string) {

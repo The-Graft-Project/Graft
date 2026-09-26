@@ -37,94 +37,32 @@ func main() {
 			}
 			return
 		}
+		// graft -default <name> sets the fallback registry; with no name it
+		// reports the current one.
+		if arg == "-default" || arg == "--default" {
+			if len(args) > 1 {
+				e.RunSetDefaultRegistry(args[1])
+			} else {
+				e.RunShowDefaultRegistry()
+			}
+			return
+		}
 	}
 
 	// Handle target registry flag: graft -r registryname ...
-	var registryContext string
 	if args[0] == "-r" || args[0] == "--registry" {
-		if len(args) < 2 {
+		if len(args) < 3 {
 			fmt.Println("Usage: graft -r <registryname> <command>")
 			return
 		}
-		registryContext = args[1]
-		args = args[2:]
-
-		// Handle shell directly after -r: graft -r name -sh ...
-		if len(args) > 0 && (args[0] == "-sh" || args[0] == "--sh") {
-			e.RunRegistryShell(registryContext, args[1:])
-			return
-		}
-		// Handle psql directly after -r: graft -r name psql [dbname] [flags...]
-		if len(args) > 0 && args[0] == "psql" {
-			gCfg, _ := config.LoadGlobalConfig()
-			if gCfg != nil {
-				srv := gCfg.Servers[registryContext]
-				e.Server = &srv
-			}
-			e.RunPsql("", args[1:])
-			return
-		}
-		// Handle db/redis on registry: graft -r name db <dbname> [init|serve]
-		if len(args) > 0 && (args[0] == "db" || args[0] == "redis") {
-			gCfg, _ := config.LoadGlobalConfig()
-			if gCfg != nil {
-				srv := gCfg.Servers[registryContext]
-				e.Server = &srv
-			}
-			if len(args) < 3 {
-				fmt.Printf("Usage: graft -r <registry> %s <name> [init|serve]\n", args[0])
-				return
-			}
-			switch args[2] {
-			case "init":
-				typ := "postgres"
-				if args[0] == "redis" {
-					typ = "redis"
-				}
-				e.RunInfraInit(typ, args[1])
-			case "serve":
-				if args[0] == "redis" {
-					fmt.Println("Error: serve is only supported for postgres databases.")
-					return
-				}
-				port := 5432
-				if len(args) > 3 {
-					p, err := strconv.Atoi(strings.TrimPrefix(args[3], ":"))
-					if err == nil && p > 0 {
-						port = p
-					}
-				}
-				e.RunDbServe(args[1], port)
-			default:
-				fmt.Printf("Usage: graft -r <registry> %s <name> [init|serve]\n", args[0])
-			}
-			return
-		}
-		// Handle tunnel on registry: graft -r name tunnel <container> [-port port:localport]
-		if len(args) > 0 && args[0] == "tunnel" {
-			gCfg, _ := config.LoadGlobalConfig()
-			if gCfg != nil {
-				srv := gCfg.Servers[registryContext]
-				e.Server = &srv
-			}
-			if len(args) < 2 {
-				fmt.Println("Usage: graft -r <registry> tunnel <container> [-port port:localport]")
-				return
-			}
-			remotePort, localPort := parseTunnelPortFlag(args[2:])
-			e.RunTunnel(args[1], remotePort, localPort)
-			return
-		}
-		// Handle shell directly after -r: graft -r name -sh ...
-		if len(args) > 0 {
-
-			e.RunRegistryDocker(registryContext, args)
-			return
-		}
+		runRegistryScoped(e, args[1], args[2:])
+		return
 	}
 
 	// Handle project context flag: graft -p projectname ...
+	projectScoped := false
 	if args[0] == "-p" || args[0] == "--project" {
+		projectScoped = true
 		if len(args) < 3 {
 			fmt.Println("Usage: graft -p <projectname> <command>")
 			return
@@ -155,6 +93,18 @@ func main() {
 		if gCfg != nil {
 			server := gCfg.Servers[projectmeta.Registry]
 			e.Server = &server
+		}
+	}
+
+	// Nothing scoped this command: no -r, no -p, and no project in this
+	// directory. Fall back to the default registry and run exactly what
+	// "graft -r <default> <command>" would have run.
+	if !projectScoped {
+		projectFound := err == nil && projectmeta != nil
+		if name := resolveDefaultRegistry(e.GlobalConfig, args[0], projectFound); name != "" {
+			fmt.Printf("🌐 No project here - using default registry '%s'\n", name)
+			runRegistryScoped(e, name, args)
+			return
 		}
 	}
 
@@ -213,6 +163,12 @@ func main() {
 		fmt.Println(e)
 	}
 	command := args[0]
+
+	// A -r command returns before reaching this switch, so anything here is
+	// project-scoped or global and carries no registry context. This was
+	// already true before -r was extracted: its docker passthrough matched
+	// every command, so the registry-aware branches below were unreachable.
+	registryContext := ""
 
 	switch command {
 	case "init":
@@ -429,6 +385,101 @@ func main() {
 	}
 }
 
+// projectlessCommands already work without a project, so they must never be
+// redirected to the default registry: "graft init" has to stay "graft init"
+// rather than becoming "sudo docker init" on some server.
+var projectlessCommands = map[string]bool{
+	"init":     true,
+	"registry": true,
+	"projects": true,
+	"pub":      true,
+}
+
+// resolveDefaultRegistry returns the registry a bare command should target when
+// the current directory holds no project, or "" to leave the command on its
+// normal path. A default naming a registry that no longer exists is ignored.
+func resolveDefaultRegistry(cfg *config.GlobalConfig, command string, projectFound bool) string {
+	if projectFound || projectlessCommands[command] {
+		return ""
+	}
+	name, ok := cfg.DefaultRegistry()
+	if !ok {
+		return ""
+	}
+	return name
+}
+
+// runRegistryScoped runs args against a single registry. It backs both
+// "graft -r <name> <command>" and the default-registry fallback, so the two
+// behave identically. args must not be empty.
+func runRegistryScoped(e *executors.Executor, registryName string, args []string) {
+	// Point the executor at the registry's server for the branches that talk
+	// to it directly rather than going through RunRegistryDocker.
+	setServer := func() {
+		gCfg, _ := config.LoadGlobalConfig()
+		if gCfg != nil {
+			srv := gCfg.Servers[registryName]
+			e.Server = &srv
+		}
+	}
+
+	switch {
+	// graft -r name -sh [cmd]
+	case args[0] == "-sh" || args[0] == "--sh":
+		e.RunRegistryShell(registryName, args[1:])
+
+	// graft -r name psql [dbname] [flags...]
+	case args[0] == "psql":
+		setServer()
+		e.RunPsql("", args[1:])
+
+	// graft -r name db|redis <name> [init|serve]
+	case args[0] == "db" || args[0] == "redis":
+		setServer()
+		if len(args) < 3 {
+			fmt.Printf("Usage: graft -r <registry> %s <name> [init|serve]\n", args[0])
+			return
+		}
+		switch args[2] {
+		case "init":
+			typ := "postgres"
+			if args[0] == "redis" {
+				typ = "redis"
+			}
+			e.RunInfraInit(typ, args[1])
+		case "serve":
+			if args[0] == "redis" {
+				fmt.Println("Error: serve is only supported for postgres databases.")
+				return
+			}
+			port := 5432
+			if len(args) > 3 {
+				p, err := strconv.Atoi(strings.TrimPrefix(args[3], ":"))
+				if err == nil && p > 0 {
+					port = p
+				}
+			}
+			e.RunDbServe(args[1], port)
+		default:
+			fmt.Printf("Usage: graft -r <registry> %s <name> [init|serve]\n", args[0])
+		}
+
+	// graft -r name tunnel <container> [-port port:localport]
+	case args[0] == "tunnel":
+		setServer()
+		if len(args) < 2 {
+			fmt.Println("Usage: graft -r <registry> tunnel <container> [-port port:localport]")
+			return
+		}
+		remotePort, localPort := parseTunnelPortFlag(args[2:])
+		e.RunTunnel(args[1], remotePort, localPort)
+
+	// Anything else is forwarded to docker on the registry's host.
+	default:
+		e.RunRegistryDocker(registryName, args)
+	}
+}
+
 // parseTunnelPortFlag scans args for "-port <port>:<localport>" (or "--port").
 // A bare "-port <port>" tunnels that port to the same local port.
 // Returns 0 for a value that wasn't specified: remotePort 0 means auto-detect
@@ -464,6 +515,7 @@ func printUsage() {
 	fmt.Println("\nFlags:")
 	fmt.Println("  -p, --project <name>      Run command in specific project context")
 	fmt.Println("  -r, --registry <name>     Target a specific server context")
+	fmt.Println("  -default [<name>]         Set (or show) the registry used outside a project")
 	fmt.Println("  -sh, --sh [cmd]           Execute shell command on target (or start SSH session)")
 	fmt.Println("  -v, --version             Show version information")
 	fmt.Println("  --help                    Show this help message")
