@@ -325,6 +325,60 @@ graft infra db backup
 
 ---
 
+## Tunnel Commands
+
+### `graft host tunnel <container> [-port <remote>:<local>]`
+Forward a remote container's port to your local machine over SSH.
+
+```bash
+graft host tunnel backend -port 5000:8080     # container port 5000 -> localhost:8080
+graft host tunnel frontend -port 3000         # same port on both sides
+graft host tunnel graft-postgres              # auto-detect the exposed port
+graft -r azure tunnel backend -port 5000:8080 # registry scope
+```
+
+**Port mapping:**
+
+| Form | Remote port | Local port |
+|------|-------------|------------|
+| `-port 5000:8080` | 5000 | 8080 |
+| `-port 3000` | 3000 | 3000 |
+| omitted | auto-detected | same as remote |
+
+**What it does:**
+- Connects to the remote server over SSH.
+- Looks up the container's IP on the Docker network.
+- Auto-detects the container's exposed port when `-port` is omitted, prompting if several are exposed.
+- Forwards the remote port to your local port until you press Ctrl+C.
+
+**Notes:**
+- Use `-port` (or `--port`). `-p` is the global project flag, not a port flag.
+- The remote port is how Graft locates the service, so choosing a local port means naming the remote one too: `-port 5000:8080`.
+- The listener binds `0.0.0.0`, so the tunnel is reachable from other machines on your network while it is open.
+- The SSH connection is self-healing: if it drops, Graft reconnects without closing your local listener.
+
+---
+
+### `graft db <name> serve [:port]`
+Tunnel a remote Postgres database to your local machine and print its credentials.
+
+```bash
+graft db myapp serve              # tunnel to localhost:5432
+graft db myapp serve :5433        # custom local port
+graft host db myapp serve :5433   # host scope
+graft -r azure db myapp serve     # registry scope
+```
+
+**What it does:**
+- Opens an SSH tunnel to the database container.
+- Prints the connection credentials from `.graft/secrets.env`.
+
+**Use when:** connecting pgAdmin, DBeaver, TablePlus, psql, or a local app to the remote database without exposing a public port.
+
+**Note:** `db serve` takes a bare `:port` for the local port. This differs from `host tunnel`, which uses the `-port` flag.
+
+---
+
 ## Deployment Commands
 
 ### `graft sync`
@@ -1018,6 +1072,8 @@ graft exec backend sh
 - `graft infra [db|redis] ports:<v>` - Manage infra ports
 - `graft db <name> init` - Create database
 - `graft redis <name> init` - Create Redis instance
+- `graft host tunnel <c> [-port <r>:<l>]` - Tunnel a container port to your machine
+- `graft db <name> serve [:port]` - Tunnel remote Postgres to your machine
 - `graft sync [service] [-h] [--git] [--branch <name>] [--commit <hash>]` - Deploy
 - `graft sync compose [-h]` - Update compose only
 - `graft logs <service>` - Stream logs

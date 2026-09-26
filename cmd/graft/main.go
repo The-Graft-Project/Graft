@@ -22,7 +22,7 @@ func main() {
 	if len(args) > 0 {
 		arg := args[0]
 		if arg == "-v" || arg == "--version" {
-			fmt.Println("v2.6.0")
+			fmt.Println("v2.6.1")
 			return
 		}
 		if arg == "--help" {
@@ -100,7 +100,7 @@ func main() {
 			}
 			return
 		}
-		// Handle tunnel on registry: graft -r name tunnel <container> [-p port:localport]
+		// Handle tunnel on registry: graft -r name tunnel <container> [-port port:localport]
 		if len(args) > 0 && args[0] == "tunnel" {
 			gCfg, _ := config.LoadGlobalConfig()
 			if gCfg != nil {
@@ -108,7 +108,7 @@ func main() {
 				e.Server = &srv
 			}
 			if len(args) < 2 {
-				fmt.Println("Usage: graft -r <registry> tunnel <container> [-p port:localport]")
+				fmt.Println("Usage: graft -r <registry> tunnel <container> [-port port:localport]")
 				return
 			}
 			remotePort, localPort := parseTunnelPortFlag(args[2:])
@@ -267,7 +267,7 @@ func main() {
 			e.RunInfraInit("redis", args[2])
 		case "tunnel":
 			if len(args) < 3 {
-				fmt.Println("Usage: graft host tunnel <container> [-p port:localport]")
+				fmt.Println("Usage: graft host tunnel <container> [-port port:localport]")
 				return
 			}
 			remotePort, localPort := parseTunnelPortFlag(args[3:])
@@ -429,13 +429,16 @@ func main() {
 	}
 }
 
-// parseTunnelPortFlag scans args for "-p <port>:<localport>" (or "--port").
-// A bare "-p <port>" tunnels that port to the same local port.
+// parseTunnelPortFlag scans args for "-port <port>:<localport>" (or "--port").
+// A bare "-port <port>" tunnels that port to the same local port.
 // Returns 0 for a value that wasn't specified: remotePort 0 means auto-detect
 // exposed container ports, localPort 0 means "use remotePort".
+//
+// Note "-p" is deliberately not accepted here: it is the project flag
+// (graft -p <project> ...), and reusing it for ports was confusing.
 func parseTunnelPortFlag(args []string) (remotePort, localPort int) {
 	for i := 0; i < len(args); i++ {
-		if (args[i] == "-p" || args[i] == "--port") && i+1 < len(args) {
+		if (args[i] == "-port" || args[i] == "--port") && i+1 < len(args) {
 			spec := args[i+1]
 			if remote, local, ok := strings.Cut(spec, ":"); ok {
 				if p, err := strconv.Atoi(strings.TrimSpace(remote)); err == nil {
@@ -486,7 +489,7 @@ func printUsage() {
 	fmt.Println("  env --new <name>          Create a new deployment environment")
 	fmt.Println("  env <name> <command>      Run a command in a specific environment context")
 	fmt.Println("  scale <service> <n>       Scale a service to N replicas via Traefik load balancing (1 = remove replicas)")
-	fmt.Println("  host tunnel <c> [-p p:lp] Tunnel any Docker container to localhost via SSH (self-healing)")
+	fmt.Println("  host tunnel <c> [-port p:lp] Tunnel any Docker container to localhost via SSH (self-healing)")
 	fmt.Println("  psql [-c \"cmd\"]           Open psql session or run one-off SQL on infra postgres")
 	fmt.Println("  mode                      Change project deployment mode")
 	fmt.Println("  map                       Map all service domains to Cloudflare DNS")
