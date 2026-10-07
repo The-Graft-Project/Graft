@@ -267,6 +267,15 @@ release:
   header: |
     ## Feature Update with Graft  🚀
 
+    ### V2.7 Highlights:
+    1. **Database Backups**: `graft db <name> backup set` configures `pg_dump` backups of a single database to Cloudflare R2, AWS S3 or any S3-compatible bucket, on a schedule you choose (time zone, first run time, every 1-24 hours that divide the day). Each run checks the dump, uploads it, confirms the size in the bucket and then prunes backups older than your retention (7 days by default).
+    2. **Backup Menu**: `graft db <name> backup list` shows every backup with a short id, the date and time in your local zone, age, size, a `latest` marker and whether it has been restore-tested. `test`, `restore` and `download` use the same menu; press Enter for the latest.
+    3. **Verified Restore**: `backup test` restores a backup into an isolated throwaway database and runs seven logged checks (download size, archive signature, strict restore, schema, row counts against the live database, freshness, index health), then deletes it. `backup restore` always runs those checks first, takes a safety backup of the current data, restores in a single all-or-nothing transaction and asks you to type the database name.
+    4. **Download Links**: `backup download [-expires 24h]` prints a temporary signed link (up to 7 days) so you can fetch a backup straight from R2/S3.
+    5. **Prune by Id**: `backup prune` removes backups past the retention period; `backup prune <id>` keeps only that restore-tested backup and deletes every other one, however recent. A regular prune removes it too once it passes the retention period.
+    6. **Telegram Alerts**: `backup alert` connects a Telegram bot and finds your chat id. You are alerted when a scheduled backup fails, when no backup has succeeded for more than two intervals, and when a restore or `prune <id>` runs. `backup log` shows the full log of every step.
+    7. **Safer Infra Backup**: `graft infra db backup` now fails when the dump fails instead of uploading an empty file, checks the gzip and cleans up its temporary files.
+
     ### V2.6 Highlights:
     1. **Security Update**: Upgraded `golang.org/x/crypto` to v0.57.0, resolving GitHub Dependabot alerts in the SSH package (auth bypass via unenforced revocation, permission enforcement bypass, deadlocks, DoS, and panics).
     2. **Tunnel Port Flag Renamed (Breaking)**: The tunnel port mapping is now `-port` (or `--port`) instead of `-p` — `graft host tunnel <container> -port <remote>:<local>`. `-p` is the global project flag, and using it for ports too was confusing. Existing `-p` port arguments are no longer recognized and fall back to auto-detecting the container's exposed port, so update any scripts that used `-p`.
