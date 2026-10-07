@@ -89,16 +89,25 @@ S3_ENDPOINT=%s
 
 	// 2. Create backup.sh
 	backupScript := `#!/bin/bash
-set -e
+# pipefail: a failed pg_dumpall must fail the backup, not upload an empty gzip.
+set -euo pipefail
+umask 077
 
 # Load environment variables
 source /opt/graft/infra/.backup.env
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 FILENAME="db_backup_${TIMESTAMP}.sql.gz"
+WORKDIR=$(mktemp -d)
+trap 'rm -rf "$WORKDIR"' EXIT
 
 echo "🐘 Dumping Postgres database..."
-sudo docker exec graft-postgres pg_dumpall -U ${POSTGRES_USER:-graft} | gzip > /tmp/${FILENAME}
+sudo docker exec graft-postgres pg_dumpall -U ${POSTGRES_USER:-graft} | gzip > "$WORKDIR/${FILENAME}"
+gzip -t "$WORKDIR/${FILENAME}"
+if [ "$(stat -c%s "$WORKDIR/${FILENAME}")" -lt 1024 ]; then
+    echo "❌ Dump is suspiciously small - not uploading" >&2
+    exit 1
+fi
 
 echo "📤 Uploading to S3..."
 ENDPOINT_FLAG=""
@@ -106,10 +115,7 @@ if [ ! -z "$S3_ENDPOINT" ]; then
     ENDPOINT_FLAG="--endpoint-url $S3_ENDPOINT"
 fi
 
-sudo docker run --rm -v /tmp:/tmp -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION amazon/aws-cli $ENDPOINT_FLAG s3 cp /tmp/${FILENAME} s3://${S3_BUCKET}/backups/${FILENAME}
-
-echo "🧹 Cleaning up..."
-rm /tmp/${FILENAME}
+sudo docker run --rm -v "$WORKDIR:/work:ro" --env-file /opt/graft/infra/.backup.env amazon/aws-cli $ENDPOINT_FLAG s3 cp /work/${FILENAME} s3://${S3_BUCKET}/backups/${FILENAME}
 
 echo "✅ Backup complete: ${FILENAME}"
 `

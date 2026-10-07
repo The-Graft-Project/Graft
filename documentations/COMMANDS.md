@@ -325,6 +325,37 @@ graft infra db backup
 
 ---
 
+### `graft db <name> backup <command>`
+Per-database backups to Cloudflare R2, AWS S3 or any S3-compatible storage. Works the same with `graft -r <registry> db <name> backup ...`.
+
+| Command | What it does |
+|---|---|
+| `set` | Asks for endpoint, region, bucket, keys, how many days to keep, time zone, first run time and repeat interval (e.g. every 12h). Checks the bucket can be read, written and pruned, then installs the cron job. |
+| `now` | Backs up immediately, verifies the dump and the upload, then prunes. |
+| `list` | Every backup, newest first: date and time (your local zone), age, size, `← latest`, and whether it has been restore-tested. Also shows the schedule and the last run's result. |
+| `test [--inspect]` | Pick a backup (Enter = latest), restore it into a throwaway database with no network, run the checks below, then delete it. `--inspect` opens psql on the copy before it is deleted. |
+| `restore` | Pick a backup and replace the live database with it. Always verifies first (see below), takes a safety backup of the current data, restores in one all-or-nothing transaction, and asks you to type the database name. |
+| `download [-expires 24h]` | Pick a backup and print a temporary signed download link (1 minute to 7 days, default 1h). |
+| `prune` | Deletes backups older than the retention period. Never deletes the last remaining backup. Also runs after every backup. |
+| `prune <id>` | Keeps ONLY that backup and deletes every other one, however recent. Use it once you trust a stable version. The backup must have passed `test`; the command shows exactly what will be deleted and asks you to type the id. The kept backup is not protected: once it is older than the retention period, a regular `prune` removes it too. |
+| `alert` | Sets up Telegram alerts: paste a bot token from @BotFather, send the bot a message, and graft finds your chat id and sends a test. Alerts fire when a scheduled backup fails, when no backup has succeeded for more than two intervals (checked hourly, at most one alert a day), and when a restore or `prune <id>` runs. The token is stored on the server in `<name>.telegram` (mode 600), apart from the R2 keys. Needs `curl` on the server. |
+| `log [lines]` | Shows the log of every backup and verification layer. |
+
+**Verification layers** (run by `test`, and automatically by `restore` unless the backup passed within the last 30 minutes). Each layer is logged to the screen and to `/opt/graft/infra/backup/<name>.log` on the server:
+1. Download and size match the bucket
+2. PostgreSQL archive signature and readable table of contents
+3. Restore into a throwaway database with strict error handling
+4. Schema comparison against the live database
+5. Row counts per table, backup vs live (shows rows that would be lost)
+6. Freshness: age, whether newer backups exist, newest `created_at`/`updated_at` per table
+7. Index validity and `ANALYZE`
+
+A failed layer stops everything and leaves the live database untouched. Warnings (for example, "24 rows were written after this backup") are shown but do not block.
+
+Backups are `pg_dump` custom-format files named `<name>_<UTC timestamp>.dump` under `backups/<name>/` in the bucket. Schedules are evaluated in the time zone you chose, so daylight-saving changes are followed.
+
+---
+
 ## Tunnel Commands
 
 ### `graft host tunnel <container> [-port <remote>:<local>]`

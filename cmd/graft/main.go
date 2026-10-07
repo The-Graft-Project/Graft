@@ -212,6 +212,8 @@ func main() {
 					}
 				}
 				e.RunDbServe(args[2], port)
+			case "backup":
+				e.RunDbBackup(args[2], args[4:])
 			default:
 				fmt.Println("Usage: graft host db <name> [init|serve]")
 			}
@@ -253,9 +255,12 @@ func main() {
 				dbOverride = meta.Database
 			}
 			e.RunDbServe(dbOverride, port)
+		case "backup":
+			e.RunDbBackup(args[1], args[3:])
 		default:
 			fmt.Println("Usage: graft db <name> init")
 			fmt.Println("       graft db <name> serve [:port]")
+			fmt.Println("       graft db <name> backup [set|now|list|test|restore|download|prune|log]")
 		}
 	case "redis":
 		if len(args) < 3 || args[2] != "init" {
@@ -460,6 +465,12 @@ func runRegistryScoped(e *executors.Executor, registryName string, args []string
 				}
 			}
 			e.RunDbServe(args[1], port)
+		case "backup":
+			if args[0] == "redis" {
+				fmt.Println("Error: backup is only supported for postgres databases.")
+				return
+			}
+			e.RunDbBackup(args[1], args[3:])
 		default:
 			fmt.Printf("Usage: graft -r <registry> %s <name> [init|serve]\n", args[0])
 		}
@@ -543,6 +554,7 @@ func printUsage() {
 	fmt.Println("  scale <service> <n>       Scale a service to N replicas via Traefik load balancing (1 = remove replicas)")
 	fmt.Println("  host tunnel <c> [-port p:lp] Tunnel any Docker container to localhost via SSH (self-healing)")
 	fmt.Println("  psql [-c \"cmd\"]           Open psql session or run one-off SQL on infra postgres")
+	fmt.Println("  db <name> backup <cmd>    Backups to R2/S3: set|now|list|test|restore|download|prune [id]|alert|log")
 	fmt.Println("  mode                      Change project deployment mode")
 	fmt.Println("  map                       Map all service domains to Cloudflare DNS")
 	fmt.Println("  map service <name>        Map specific service domain to Cloudflare DNS")
