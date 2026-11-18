@@ -40,6 +40,9 @@ type Client struct {
 	port    int
 	user    string
 	keyPath string
+	// keyPEM, when set, is used instead of reading keyPath. Key rollout uses
+	// it to prove a new key works before that key is saved to disk.
+	keyPEM []byte
 
 	// knownHostsPath overrides the default ~/.ssh/known_hosts. Empty means
 	// the default; tests set it to stay out of the real home directory.
@@ -90,9 +93,13 @@ func NewClient(host string, port int, user, keyPath string) (*Client, error) {
 // It does not touch c.client/c.sftp, so it is safe to call while the existing
 // connection is still in use (e.g. to test reconnection before swapping over).
 func (c *Client) dial() (*ssh.Client, error) {
-	key, err := os.ReadFile(c.keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read private key: %v", err)
+	key := c.keyPEM
+	if len(key) == 0 {
+		var err error
+		key, err = os.ReadFile(c.keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read private key: %v", err)
+		}
 	}
 
 	signer, err := ssh.ParsePrivateKey(key)
@@ -309,20 +316,6 @@ func (c *Client) RunCommand(cmd string, stdout, stderr io.Writer) error {
 	session.Stdout = stdout
 	session.Stderr = stderr
 	return session.Run(cmd)
-}
-
-func (c *Client) UpdateAuthorizedKey(oldPubKey, newPubKey string) error {
-	// Extract base64 part of the keys for more reliable matching
-	oldParts := strings.Fields(oldPubKey)
-	if len(oldParts) < 2 {
-		return fmt.Errorf("invalid old public key format")
-	}
-	oldBase64 := oldParts[1]
-
-	// Use sed to replace the line containing the old base64 string with the new full public key
-	// We use | as delimiter to avoid issues with / in keys (though unusual)
-	cmd := fmt.Sprintf("sed -i '/%s/c\\%s' ~/.ssh/authorized_keys", oldBase64, strings.TrimSpace(newPubKey))
-	return c.RunCommand(cmd, nil, nil)
 }
 
 func (c *Client) GetCommandOutput(cmd string) (string, error) {

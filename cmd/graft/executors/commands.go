@@ -247,25 +247,37 @@ func (e *Executor) GetSSHPub() {
 	fmt.Println(strings.TrimSpace(string(pubKey)))
 }
 
+// RolloutSSHKeys replaces the Graft SSH key on every server that uses it.
+//
+// It is all-or-nothing: the new key is added next to the old one and proven to
+// log in on every server before anything is saved locally. If any server
+// fails, the new key is withdrawn everywhere and the old key stays in use, so
+// a partial rollout can never lock you out of a server.
 func (e *Executor) RolloutSSHKeys() {
 	gDir := config.GetGlobalConfigDir()
 	pemPath := filepath.Join(gDir, "graftpem")
 	pubPath := filepath.Join(gDir, "graftpub")
 
-	// 1. Load old keys
-	_, err := os.ReadFile(pemPath)
+	// 1. Load the current key. The public half is derived from the private
+	// key so it is guaranteed to be the one servers authenticate us with.
+	oldPem, err := os.ReadFile(pemPath)
 	if err != nil {
-		fmt.Printf("❌ Error: Could not read old private key: %v\n", err)
+		fmt.Printf("❌ Error: Could not read current private key: %v\n", err)
 		return
 	}
-	oldPubBytes, err := os.ReadFile(pubPath)
+	oldPub, err := ssh.PublicKeyFromPrivate(oldPem)
 	if err != nil {
-		fmt.Printf("❌ Error: Could not read old public key: %v\n", err)
+		fmt.Printf("❌ Error: %v\n", err)
 		return
 	}
-	oldPubKey := string(oldPubBytes)
 
-	// 2. Generate new keys in memory
+	gCfg := e.GlobalConfig
+	if gCfg == nil {
+		fmt.Println("❌ Error: Global config not loaded.")
+		return
+	}
+
+	// 2. Generate the new key in memory only.
 	fmt.Println("🔄 Generating new SSH key pair...")
 	newPem, newPub, err := ssh.GenerateSSHKeyPairStrings()
 	if err != nil {
@@ -273,70 +285,111 @@ func (e *Executor) RolloutSSHKeys() {
 		return
 	}
 
-	// 3. Find servers using the old graft key
-	gCfg := e.GlobalConfig
-	if gCfg == nil {
-		fmt.Println("❌ Error: Global config not loaded.")
-		return
-	}
-
+	// 3. Find servers using the Graft key.
+	ourPemAbs, _ := filepath.Abs(pemPath)
 	var targets []config.ServerConfig
 	for _, srv := range gCfg.Servers {
-		// Check if srv.KeyPath points to our graftpem
-		// We normalize paths for comparison
 		srvKeyAbs, _ := filepath.Abs(srv.KeyPath)
-		ourPemAbs, _ := filepath.Abs(pemPath)
-
 		if srvKeyAbs == ourPemAbs {
 			targets = append(targets, srv)
 		}
 	}
-
 	if len(targets) == 0 {
 		fmt.Println("ℹ️  No servers found using the Graft SSH key. Only local keys will be updated.")
 	} else {
 		fmt.Printf("🚀 Rolling out keys to %d servers...\n", len(targets))
 	}
 
-	// 4. Update each server
-	successCount := 0
+	// 4. Authorize the new key alongside the old one and prove it logs in.
+	var added []config.ServerConfig
+	failed := 0
 	for _, srv := range targets {
-		fmt.Printf("📡 Updating %s (%s)... ", srv.RegistryName, srv.Host)
-
-		// Connect using OLD key bytes (since we haven't overwritten the file yet, but we have them in memory)
-		// NewClient reads from file, so it's safe to call it now
-		client, err := ssh.NewClient(srv.Host, srv.Port, srv.User, srv.KeyPath)
-		if err != nil {
-			fmt.Printf("❌ Connection failed: %v\n", err)
+		fmt.Printf("📡 Adding new key on %s (%s)... ", srv.RegistryName, srv.Host)
+		if err := addAndVerifyKey(srv, oldPub, newPub, []byte(newPem)); err != nil {
+			fmt.Printf("❌ %v\n", err)
+			failed++
 			continue
 		}
-
-		if err := client.UpdateAuthorizedKey(oldPubKey, newPub); err != nil {
-			fmt.Printf("❌ Update failed: %v\n", err)
-			client.Close()
-			continue
-		}
-
-		fmt.Println("✅ Success")
-		client.Close()
-		successCount++
+		fmt.Println("✅")
+		added = append(added, srv)
 	}
 
-	// 5. Save new keys locally
+	if failed > 0 {
+		fmt.Printf("\n⏪ %d of %d servers failed, so the rotation is cancelled.\n", failed, len(targets))
+		withdrawNewKey(added, oldPub, newPub)
+		fmt.Println("   Your current key is unchanged and still works. Fix the servers above and run 'graft pub rollout' again.")
+		return
+	}
+
+	// 5. Every server accepts the new key: save it locally.
 	fmt.Println("💾 Saving new keys locally...")
-	if err := os.WriteFile(pemPath, []byte(newPem), 0600); err != nil {
-		fmt.Printf("❌ Error saving private key: %v\n", err)
-		return
-	}
-	if err := os.WriteFile(pubPath, []byte(newPub), 0644); err != nil {
-		fmt.Printf("❌ Error saving public key: %v\n", err)
+	if err := ssh.ReplaceKeyPair(pemPath, pubPath, newPem, newPub); err != nil {
+		fmt.Printf("❌ Error saving keys: %v\n", err)
+		withdrawNewKey(added, oldPub, newPub)
+		fmt.Println("   Your current key is unchanged and still works.")
 		return
 	}
 
-	fmt.Printf("\n✨ Successfully rolled out SSH keys! (%d servers updated)\n", successCount)
-	if len(targets) > successCount {
-		fmt.Printf("⚠️  Warning: %d servers failed to update. They still expect the OLD key.\n", len(targets)-successCount)
-		fmt.Printf("   You may need to manually add the new public key to them.\n")
+	// 6. Revoke the old key, connecting with the new one now on disk.
+	lingering := 0
+	for _, srv := range added {
+		fmt.Printf("🧹 Revoking old key on %s (%s)... ", srv.RegistryName, srv.Host)
+		client, err := ssh.NewClient(srv.Host, srv.Port, srv.User, srv.KeyPath)
+		if err == nil {
+			err = client.RemoveAuthorizedKey(oldPub, newPub)
+			client.Close()
+		}
+		if err != nil {
+			fmt.Printf("⚠️  %v\n", err)
+			lingering++
+			continue
+		}
+		fmt.Println("✅")
+	}
+
+	fmt.Printf("\n✨ Successfully rolled out SSH keys! (%d servers updated)\n", len(added))
+	if lingering > 0 {
+		fmt.Printf("⚠️  The old key is still authorized on %d servers. Remove this line from their ~/.ssh/authorized_keys:\n   %s\n", lingering, oldPub)
+	}
+}
+
+// addAndVerifyKey authorizes newPub on srv, logging in with the current key,
+// then opens a separate connection with the new key to prove it works. If that
+// proof fails, the new key is withdrawn again before returning.
+func addAndVerifyKey(srv config.ServerConfig, oldPub, newPub string, newPem []byte) error {
+	client, err := ssh.NewClient(srv.Host, srv.Port, srv.User, srv.KeyPath)
+	if err != nil {
+		return fmt.Errorf("connection failed: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.AddAuthorizedKey(oldPub, newPub); err != nil {
+		return fmt.Errorf("adding key failed: %v", err)
+	}
+	if err := ssh.VerifyKeyLogin(srv.Host, srv.Port, srv.User, newPem); err != nil {
+		if rerr := client.RemoveAuthorizedKey(newPub, oldPub); rerr != nil {
+			return fmt.Errorf("new key does not log in (%v), and withdrawing it failed: %v", err, rerr)
+		}
+		return fmt.Errorf("new key does not log in: %v", err)
+	}
+	return nil
+}
+
+// withdrawNewKey removes newPub from servers where it was added, logging in
+// with the old key, which is still the one on disk.
+func withdrawNewKey(servers []config.ServerConfig, oldPub, newPub string) {
+	for _, srv := range servers {
+		fmt.Printf("   Withdrawing new key from %s... ", srv.RegistryName)
+		client, err := ssh.NewClient(srv.Host, srv.Port, srv.User, srv.KeyPath)
+		if err == nil {
+			err = client.RemoveAuthorizedKey(newPub, oldPub)
+			client.Close()
+		}
+		if err != nil {
+			fmt.Printf("⚠️  %v (harmless: that key was never saved)\n", err)
+			continue
+		}
+		fmt.Println("✅")
 	}
 }
 
