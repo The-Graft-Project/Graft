@@ -267,6 +267,13 @@ release:
   header: |
     ## Feature Update with Graft  🚀
 
+    ### V2.7.1: SSH Key Rollout Fixes
+
+    1. **Key Rollout Works Again**: `graft pub rollout` failed on every server with `Process exited with status 1`. The old key was matched with a `sed` pattern, and the `/` characters found in almost every key broke it. Keys are now matched as plain text, and a failure shows the server's own error message.
+    2. **No More Lockouts**: The rollout is now all-or-nothing. The new key is added next to the old one on every server and checked with a real login using it. If any server fails, the new key is removed from every server and your current key stays in use. Before, the new key was saved locally even when servers had failed, which could leave you with a key those servers did not accept.
+    3. **Old Key Revoked Last**: Only after every server accepts the new key is it saved locally and the old key removed from the servers. Removal refuses to run unless the new key is in place, and `authorized_keys` is edited in place so its owner, mode and SELinux label stay the same.
+    4. **Read-Only Key Files**: Saving the new key no longer fails with `Access is denied` when `graftpem` has been made read-only for OpenSSH on Windows. Keys are written to a temporary file and swapped in, and on Windows the private key is restricted to your account so OpenSSH accepts it.
+
     ### V2.7 Highlights: Database Backups
 
     1. **Database Backups**: `graft db <name> backup set` configures `pg_dump` backups of a single database to Cloudflare R2, AWS S3 or any S3-compatible bucket, on a schedule you choose (time zone, first run time, every 1-24 hours that divide the day). Each run checks the dump, uploads it, confirms the size in the bucket and then prunes backups older than your retention (7 days by default).
