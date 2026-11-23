@@ -267,6 +267,13 @@ release:
   header: |
     ## Feature Update with Graft  🚀
 
+    ### V2.7.2: Passphrase-Protected SSH Keys
+
+    1. **Passphrase Keys Work**: Registering a server with a passphrase-protected private key made every command that connected to it fail with `unable to parse private key: ssh: this private key is passphrase protected`. Graft now asks for the passphrase when a command needs the key.
+    2. **Asked Once Per Command**: The passphrase is kept in memory only until the command finishes and is never saved to disk. A command that opens several connections, reconnects after a network drop, or runs rsync and ssh (`graft sync`, `graft pull`, `graft -sh`) asks only once. Graft passes the passphrase to its own ssh and rsync, and only answers ssh's passphrase prompt, so it is never sent to a server as a password. Three wrong tries end the command.
+    3. **Checked When You Add It**: `graft registry add` and `graft init` now check the key as soon as you enter its path and ask for the passphrase to confirm it unlocks the key. A key that cannot be used, or a wrong passphrase, is caught there instead of on your first deploy.
+    4. **No Hang on Closed Input**: If input runs out at the key path prompt, for example from a script, Graft now stops with `no key path entered` instead of asking again forever.
+
     ### V2.7.1: SSH Key Rollout Fixes
 
     1. **Key Rollout Works Again**: `graft pub rollout` failed on every server with `Process exited with status 1`. The old key was matched with a `sed` pattern, and the `/` characters found in almost every key broke it. Keys are now matched as plain text, and a failure shows the server's own error message.
