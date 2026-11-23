@@ -8,9 +8,14 @@ import (
 
 	"github.com/skssmd/graft/cmd/graft/executors"
 	"github.com/skssmd/graft/internal/config"
+	"github.com/skssmd/graft/internal/server/ssh"
 )
 
 func main() {
+	// When ssh runs graft as its SSH_ASKPASS helper, answer and exit before
+	// anything else (usage, config loading) can print or prompt.
+	ssh.RunAskpassIfRequested()
+
 	if len(os.Args) < 2 {
 		printUsage()
 		return

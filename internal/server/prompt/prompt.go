@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/skssmd/graft/internal/config"
+	"github.com/skssmd/graft/internal/server/ssh"
 )
 
 // PromptDomain prompts the user for a domain name with an optional default value
@@ -135,8 +136,13 @@ func PromptNewServer(reader *bufio.Reader) (string, int, string, string) {
 	var keyPath string
 	for {
 		fmt.Printf("Key Path [graft pem]: ")
-		input, _ := reader.ReadString('\n')
+		input, readErr := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
+		if readErr != nil && input == "" {
+			// Input is closed: re-asking would loop forever.
+			fmt.Println("\n❌ Error: no key path entered.")
+			os.Exit(1)
+		}
 
 		if input == "" {
 			keyPath = defaultKeyPath
@@ -153,10 +159,23 @@ func PromptNewServer(reader *bufio.Reader) (string, int, string, string) {
 		}
 
 		// Check if it exists
-		if _, err := os.Stat(keyPath); err == nil {
-			break
+		if _, err := os.Stat(keyPath); err != nil {
+			fmt.Printf("❌ Error: Key not found at '%s'. Please recheck and enter.\n", keyPath)
+			continue
 		}
-		fmt.Printf("❌ Error: Key not found at '%s'. Please recheck and enter.\n", keyPath)
+
+		// Catch an unusable key or a forgotten passphrase now rather than on
+		// the first deploy. The passphrase is kept only for this command.
+		encrypted, err := ssh.CheckKeyFile(keyPath)
+		if err != nil {
+			fmt.Printf("❌ Error: %v. Please recheck and enter.\n", err)
+			continue
+		}
+		if encrypted {
+			fmt.Println("🔐 Key is passphrase protected. Graft never saves the passphrase;")
+			fmt.Println("   it asks for it once per command that connects to this server.")
+		}
+		break
 	}
 
 	return host, port, user, keyPath

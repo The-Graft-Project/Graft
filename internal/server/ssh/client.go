@@ -93,19 +93,23 @@ func NewClient(host string, port int, user, keyPath string) (*Client, error) {
 // It does not touch c.client/c.sftp, so it is safe to call while the existing
 // connection is still in use (e.g. to test reconnection before swapping over).
 func (c *Client) dial() (*ssh.Client, error) {
-	key := c.keyPEM
+	key, label := c.keyPEM, "the new Graft key"
 	if len(key) == 0 {
 		var err error
 		key, err = os.ReadFile(c.keyPath)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read private key: %v", err)
 		}
+		label = c.keyPath
 	}
 
-	signer, err := ssh.ParsePrivateKey(key)
+	// Asks for the passphrase on first use only; reconnects reuse the
+	// unlocked key, so the background self-heal never prompts.
+	unlocked, err := unlockKey(key, label)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse private key: %v", err)
+		return nil, err
 	}
+	signer := unlocked.signer
 
 	knownHostsPath := c.knownHostsPath
 	if knownHostsPath == "" {
@@ -370,7 +374,13 @@ func (c *Client) InteractiveSession() error {
 		args = []string{"-i", c.keyPath, "-p", fmt.Sprintf("%d", c.port), "-o", "StrictHostKeyChecking=no", fmt.Sprintf("%s@%s", c.user, c.host)}
 	}
 
+	env, err := withAskpass(c.keyPath, isWSL)
+	if err != nil {
+		return err
+	}
+
 	cmd := exec.Command(sshCmd, args...)
+	cmd.Env = env
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -690,6 +700,11 @@ func (c *Client) RsyncDirectory(localDir, remoteDir string, stdout, stderr io.Wr
 		fmt.Sprintf("%s@%s:%s/", c.user, c.host, remoteDir),
 	)
 
+	env, err := withAskpass(c.keyPath, rsyncCmd == "wsl")
+	if err != nil {
+		return err
+	}
+
 	// Execute rsync
 	var cmd *exec.Cmd
 	if rsyncCmd == "wsl" {
@@ -700,6 +715,7 @@ func (c *Client) RsyncDirectory(localDir, remoteDir string, stdout, stderr io.Wr
 		cmd = exec.Command(rsyncCmd, args...)
 	}
 
+	cmd.Env = env
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
@@ -754,6 +770,11 @@ func (c *Client) PullRsync(remoteDir, localDir string, stdout, stderr io.Writer)
 		localPath+"/",
 	)
 
+	env, err := withAskpass(c.keyPath, rsyncCmd == "wsl")
+	if err != nil {
+		return err
+	}
+
 	// Execute rsync
 	var cmd *exec.Cmd
 	if rsyncCmd == "wsl" {
@@ -763,6 +784,7 @@ func (c *Client) PullRsync(remoteDir, localDir string, stdout, stderr io.Writer)
 		cmd = exec.Command(rsyncCmd, args...)
 	}
 
+	cmd.Env = env
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
